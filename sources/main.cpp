@@ -33,7 +33,6 @@ int main(int argc, char *argv[]) {
     spdlog::set_level(spdlog::level::info);
     spdlog::info("\n\nSTART");
 
-
     std::signal(SIGINT, stopServer);
     std::signal(SIGTERM, stopServer);
     std::string type = resultParser["type"].as<std::string>();

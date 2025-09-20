@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-base-ubuntu22.04 as base
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04 as base
     RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
