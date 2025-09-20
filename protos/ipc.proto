@@ -1,7 +1,6 @@
 syntax = "proto3";
 package ipc;
 
-// -------------------- Operations --------------------
 enum MathOp {
     MATH_ADD = 0;
     MATH_SUB = 1;
@@ -10,111 +9,89 @@ enum MathOp {
 }
 
 enum StrOp {
-    STR_CONCAT       = 0;  // "Conc"
-    STR_FIND_START   = 1;  // "FindStartPos"
+    STR_CONCAT     = 0;
+    STR_FIND_START = 1;
 }
 
-// -------------------- Status codes --------------------
 enum Status {
-    ST_SUCCESS                 = 0;
-    ST_ERROR_INVALID_INPUT     = 1; // bad operator or args
-    ST_ERROR_DIV_BY_ZERO       = 2;
-    ST_ERROR_SUBSTR_NOT_FOUND  = 3;
-    ST_ERROR_STRING_TOO_LONG   = 4; // concat result > 32 chars
-    ST_ERROR_INTERNAL          = 5;
-    ST_NOT_FINISHED            = 6; // for getReq when not ready
+    ST_SUCCESS                = 0;
+    ST_ERROR_INVALID_INPUT    = 1;
+    ST_ERROR_DIV_BY_ZERO      = 2;
+    ST_ERROR_SUBSTR_NOT_FOUND = 3;
+    ST_ERROR_STRING_TOO_LONG  = 4;
+    ST_ERROR_INTERNAL         = 5;
+    ST_NOT_FINISHED           = 6;
 }
 
-// -------------------- Arguments --------------------
 message MathArgs {
-    MathOp op = 1;  // Add/Sub/Mul/Div
-    int32 a  = 2;
-    int32 b  = 3;
+    MathOp op = 1;
+    int32 a   = 2;
+    int32 b   = 3;
 }
 
 message StrArgs {
-    StrOp  op = 1;  // Conc / FindStartPos
-    string s1 = 2;  // 1..16
-    string s2 = 3;  // 1..16
+    StrOp  op = 1;
+    string s1 = 2;
+    string s2 = 3;
 }
 
-// -------------------- Results --------------------
 message Result {
-    // one of: int result (math), position (find), or string (concat)
     oneof value {
-        int32  int_result  = 1;  // math result
-        int32  position    = 2;  // FindStartPos (0-based); absent if not found
-        string str_result  = 3;  // Conc
+        int32  int_result = 1; // math result
+        int32  position   = 2; // FindStartPosition of s2 in s1
+        string str_result = 3; // Conc
     }
-}
-
-// -------------------- Common IDs --------------------
-message ClientRef {
-    string client_id = 1;   // your logical client name
 }
 
 message Ticket {
-    // Use this as your "pid"/handle to correlate non-blocking requests.
-    // You can set it as (pid<<32)|seq or any monotonically unique id.
     uint64 req_id = 1;
 }
 
-// =====================================================
-// 1) Blocking request/response
-// =====================================================
-message BlockReq {
-    ClientRef client = 1;
+enum SubmitMode {
+    BLOCKING    = 0;
+    NONBLOCKING = 1;
+}
+
+message SubmitRequest {
+    SubmitMode mode = 1;
     oneof payload {
         MathArgs math = 10;
         StrArgs  str  = 11;
     }
 }
 
-message BlockResp {
+message SubmitResponse {
     Status status = 1;
-    Result result = 2;    // present when status == ST_SUCCESS
+    Ticket ticket = 2;
+    Result result = 3;
 }
 
-// =====================================================
-// 2) Non-blocking: enqueue now, get a Ticket (req_id)
-// =====================================================
-message NonBlockingReq {
-    ClientRef client = 1;
-    oneof payload {
-        MathArgs math = 10;
-        StrArgs  str  = 11;
+enum GetWaitMode {
+    NO_WAIT    = 0;
+    WAIT_UP_TO = 1;
+}
+
+message GetRequest {
+    Ticket      ticket     = 1;
+    GetWaitMode wait_mode  = 2;
+    uint32      timeout_ms = 3;
+}
+
+message GetResponse {
+    Status status = 1;
+    Result result = 2;
+}
+
+message EnvelopeReq {
+    oneof req {
+        SubmitRequest submit = 1;
+        GetRequest    get    = 2;
     }
 }
 
-message NonBlockingResp {
-    Status status = 1; // ST_SUCCESS means accepted
-    Ticket ticket = 2; // your "pid"/handle to poll/wait later
-}
-
-message GetReqWaitReq {
-    ClientRef client = 1;
-    Ticket ticket = 2;
-    uint32 timeout_ms = 3;
-}
-
-message GetReqWaitResp {
-    Status status = 1; // ST_SUCCESS if finished; else error
-    Result result = 2; // present when ST_SUCCESS
-}
-
-message GetReqReq {
-    ClientRef client = 1;
-    Ticket ticket = 2;
-}
-
-message GetReqResp {
-    Status status = 1; // ST_SUCCESS or ST_NOT_FINISHED or error
-    Result result = 2; // present only when ST_SUCCESS
-}
-
-service IpcService {
-    rpc Block (BlockReq) returns (BlockResp);
-    rpc NonBlocking (NonBlockingReq) returns (NonBlockingResp);
-    rpc GetReqWait (GetReqWaitReq) returns (GetReqWaitResp);
-    rpc GetReq (GetReqReq) returns (GetReqResp);
+message EnvelopeResp {
+    oneof resp {
+        SubmitResponse submit = 1;
+        GetResponse    get    = 2;
+    }
 }

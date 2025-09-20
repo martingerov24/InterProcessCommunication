@@ -1,8 +1,10 @@
 #include "application.h"
-#include <zmq.hpp>
+#include <zmq_addon.hpp> // For zmq::recv_multipart
 #include "signal.h"
 #include "error_handling.h"
 #include <spdlog/spdlog.h>
+#include <fmt/format.h>
+#include "algorithm_runner.h"
 
 using namespace server;
 
@@ -49,8 +51,12 @@ int Application::init() {
         return EC_FAILURE;
     }
     spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
-    mInitialized.store(true);
 
+    const char* bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort).c_str();
+
+    mRouter.bind(bindAddress);
+
+    mInitialized.store(true);
     return EC_SUCCESS;
 }
 
@@ -65,6 +71,7 @@ int Application::deinit() {
     }
 
     mInitialized.store(false);
+    mRouter.close();
 
     spdlog::info("Deinitializing Application");
     appPtr.reset();
@@ -85,10 +92,47 @@ int Application::run() {
         spdlog::error("Application is not initialized");
         return EC_FAILURE;
     }
-
+    AlgoRunner algoRunner;
     spdlog::info("Server running at {}", mAddress);
-    while (mInitialized.load(std::memory_order_relaxed) && sigStop.load(std::memory_order_relaxed) == false) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    int result = EC_SUCCESS;
+    while (
+        mInitialized.load(std::memory_order_relaxed) &&
+        sigStop.load(std::memory_order_relaxed) == false
+    ) {
+        std::vector<zmq::message_t> recvMsgs;
+        zmq::recv_result_t zmqResult = zmq::recv_multipart(mRouter, std::back_inserter(recvMsgs));
+        if (zmqResult.has_value() == false) {
+            continue;
+        }
+        std::string clientId = recvMsgs[0].to_string();
+        std::string payload = recvMsgs.back().to_string();
+        ipc::EnvelopeReq request;
+        bool res = request.ParseFromString(payload);
+        if (res == false) {
+            spdlog::error("Failed to parse request from client {}", clientId);
+            continue;
+        }
+        if (request.has_submit()) {
+            ipc::SubmitResponse response;
+            result = algoRunner.run(request.submit(), response);
+            ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to process envelope from client");
+
+            ipc::EnvelopeResp envelopeResp;
+            *envelopeResp.mutable_submit() = std::move(response);
+
+            std::string serializedResponse;
+            if (envelopeResp.SerializeToString(&serializedResponse) == false) {
+                spdlog::error("Failed to serialize response for client {}", clientId);
+                continue;
+            }
+            zmq::message_t idFrame(clientId.data(), clientId.size());
+            zmq::message_t empty;
+            zmq::message_t body(serializedResponse.data(), serializedResponse.size());
+
+            mRouter.send(idFrame, zmq::send_flags::sndmore);
+            mRouter.send(empty, zmq::send_flags::sndmore);
+            mRouter.send(body, zmq::send_flags::none);
+        }
     }
     return EC_SUCCESS;
 }

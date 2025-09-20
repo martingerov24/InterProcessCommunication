@@ -1,5 +1,7 @@
 #pragma once
 #include <atomic>
+#include "zmq.hpp"
+#include <vector>
 
 namespace server {
     /// Singleton class representing the server application.
@@ -18,8 +20,10 @@ namespace server {
         void stop();
         ~Application();
     private:
+        zmq::context_t mCtx{1};
+        zmq::socket_t mRouter{mCtx, zmq::socket_type::router};
+        std::vector<std::string> mClients;
         std::atomic<bool> mInitialized{false};
-        std::atomic<bool> mRunning{false};
         const char* mAddress;
         int mPort;
     };

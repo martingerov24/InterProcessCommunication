@@ -62,6 +62,7 @@ set(SOUCES_INCLUDE_DIR
 )
 
 set(SOURCES
+    ${SOURCES_DIR}/server/algorithm_runner.cpp
     ${SOURCES_DIR}/server/application.cpp
     ${SOURCES_DIR}/common/error_handling.cpp
     ${SOURCES_DIR}/ipc.cpp
