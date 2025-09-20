@@ -4,84 +4,105 @@
 #include "error_handling.h"
 #include <spdlog/spdlog.h>
 
-static void signalHandler(int);
-
-namespace server {
-
-    struct ApplicationImpl {
-    private:
-        ApplicationImpl() {
-            signal(SIGINT, signalHandler);
-            signal(SIGTERM, signalHandler);
-        }
-
-    public:
-        static ApplicationImpl& get() noexcept {
-            assert(appPtr != nullptr);
-            return *appPtr;
-        }
-        static int create() noexcept {
-            static int instanceCount = 0;
-            if (instanceCount >= 1) {
-                spdlog::error("Only one instance of Application is allowed");
-                return EC_FAILURE;
-            }
-            instanceCount++;
-            appPtr = std::unique_ptr<ApplicationImpl>(new ApplicationImpl());
-            return EC_SUCCESS;
-        }
-
-        int init(const char* address, const int port) {
-            endpoint = std::string("tcp://") + address + ":" + std::to_string(port);
-            return EC_SUCCESS;
-        }
-
-        int deinit() {
-            return EC_SUCCESS;
-        }
-
-        int run() {
-            spdlog::info("Server running at {}", endpoint);
-            return EC_SUCCESS;
-        }
-    private:
-        std::string endpoint;
-        std::atomic<bool> running{false};
-
-        // ZMQ context and ROUTER socket
-        zmq::context_t ctx{1};
-        zmq::socket_t  router{ctx, zmq::socket_type::router};
-    };
-} // namespace server
-
-std::shared_ptr<server::ApplicationImpl> appPtr = nullptr;
 using namespace server;
 
-int Application::init(const char* address, int port) noexcept {
-    int result = server::ApplicationImpl::create();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create Application instance");
-    ApplicationImpl& mImpl = ApplicationImpl::get();
-    result = mImpl.init(address, port);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize Application");
+static std::shared_ptr<server::Application> appPtr = nullptr;
+static std::atomic<bool> sigStop{false};
+
+Application::Application(
+    const char* address,
+    const int port
+) noexcept
+: mAddress(address)
+, mPort(port) {}
+
+Application& Application::get() {
+    assert(appPtr != nullptr);
+    return *appPtr;
+}
+
+int Application::create(
+    const char* address,
+    const int port
+) noexcept {
+    static int instanceCount = 0;
+    if (instanceCount >= 1) {
+        spdlog::error("Only one instance of Application is allowed");
+        return EC_FAILURE;
+    }
+    instanceCount++;
+    if (appPtr != nullptr) {
+        spdlog::error("Application instance is already created");
+        return EC_FAILURE;
+    }
+    appPtr = std::shared_ptr<Application>(new Application(address, port));
+    return EC_SUCCESS;
+}
+
+int Application::init() {
+    if (appPtr == nullptr) {
+        spdlog::error("Application instance is not created");
+        return EC_FAILURE;
+    }
+    if (mInitialized == true) {
+        spdlog::error("Application is already initialized");
+        return EC_FAILURE;
+    }
+    spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
+    mInitialized.store(true);
+
+    return EC_SUCCESS;
+}
+
+int Application::deinit() {
+    if (appPtr == nullptr) {
+        spdlog::error("Application instance is not created");
+        return EC_SUCCESS;
+    }
+    if (mInitialized == false) {
+        spdlog::error("Application is not initialized");
+        return EC_FAILURE;
+    }
+
+    mInitialized.store(false);
+
+    spdlog::info("Deinitializing Application");
+    appPtr.reset();
+    return EC_SUCCESS;
+}
+
+void Application::stop() {
+    if (mInitialized == false) {
+        spdlog::error("Application is not initialized");
+        return;
+    }
+    sigStop.store(true, std::memory_order_relaxed);
+    spdlog::info("Stopping Application");
+}
+
+int Application::run() {
+    if (mInitialized == false) {
+        spdlog::error("Application is not initialized");
+        return EC_FAILURE;
+    }
+
+    spdlog::info("Server running at {}", mAddress);
+    while (mInitialized.load(std::memory_order_relaxed) && sigStop.load(std::memory_order_relaxed) == false) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     return EC_SUCCESS;
 }
 
 Application::~Application() {
-    ApplicationImpl& mImpl = ApplicationImpl::get();
-    int result = mImpl.deinit();
-
+    if (mInitialized == true) {
+        spdlog::warn("Application is being deinitialized in destructor");
+        int result = deinit();
+        ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application in destructor");
+    }
+    if (appPtr == nullptr) {
+        return;
+    }
+    Application& app = Application::get();
+    int result = app.deinit();
     ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application");
-}
-
-int Application::run() {
-    ApplicationImpl& mImpl = ApplicationImpl::get();
-    return mImpl.run();
-}
-
-// ---------- Signal handling ----------
-void signalHandler(int) {
-    spdlog::info("Signal caught, shutting down…");
-    ApplicationImpl& application =  server::ApplicationImpl::get();
-    int result = application.deinit();
-    ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application in signal handler");
 }

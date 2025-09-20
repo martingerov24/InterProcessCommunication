@@ -1,8 +1,9 @@
 #include "cxxopts.hpp"
-#include "application.h"
 #include "error_handling.h"
+#include <csignal>
 #include <spdlog/spdlog.h>
 #include "spdlog/sinks/rotating_file_sink.h"
+#include "ipc.h"
 
 int main(int argc, char *argv[]) {
     cxxopts::Options options("Producer", "Application options:");
@@ -33,21 +34,22 @@ int main(int argc, char *argv[]) {
     spdlog::info("\n\nSTART");
 
 
+    std::signal(SIGINT, stopServer);
+    std::signal(SIGTERM, stopServer);
     std::string type = resultParser["type"].as<std::string>();
     if (type != "server" && type != "consumer") {
         spdlog::error("Invalid type: {}", type);
         return -1;
     }
     spdlog::info("Type: {}", type);
-    int result = EC_SUCCESS;
+
+
     if (type == "server") {
-        server::Application app;
-        // int init(const char* address, const int port) {
-        result = app.init("127.0.0.1", 5555);
+        int result = initializeServer("localhost", 5555);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
-        result = app.run();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to run the server application");
-        result = app.deinit();
+        result = runServer();
+        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the server application");
+        result = deinitializeServer();
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize the server application");
     } else {
         spdlog::info("Consumer mode is not implemented yet.");
@@ -57,5 +59,5 @@ int main(int argc, char *argv[]) {
     spdlog::info("END LOGGING");
     logger->flush();
     spdlog::shutdown();
-    return result;
+    return EC_SUCCESS;
 }

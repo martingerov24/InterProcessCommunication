@@ -20,7 +20,7 @@ int handleCUDAError(CUresult status, const char* file, int line, const char* fun
 }
 
 int handleRegularError(int status, const char* file, int line, const char* func, const char* msg) {
-    if (status != ER_SUCCESS) {
+    if (status != EC_SUCCESS) {
         spdlog::error("Regular Error: [{}] | File: {} | Line: {} | Function: {} | Message: {}", status, file, line, func, msg ? msg : "NONE");
         return status;
     }

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(interProcessCommunication)
 
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE Debug)
 
 option(PROFILE_APPLICATION "Profile Application" ON)
 
@@ -43,7 +43,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-set(CUDA_TOOLKIT_ROOT_DIR "/usr/local/cuda-11.8" CACHE PATH "CUDA Toolkit location")
 find_package(CUDAToolkit REQUIRED)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
@@ -54,10 +53,19 @@ if(DOXYGEN_FOUND)
     )
 endif()
 
+set(SOURCES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/sources)
+set(SOUCES_INCLUDE_DIR
+    ${SOURCES_DIR}/third_party
+    ${SOURCES_DIR}/server
+    ${SOURCES_DIR}/common
+    ${SOURCES_DIR}
+)
+
 set(SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/sources/server/application.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/sources/error_handling.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/sources/main.cpp
+    ${SOURCES_DIR}/server/application.cpp
+    ${SOURCES_DIR}/common/error_handling.cpp
+    ${SOURCES_DIR}/ipc.cpp
+    ${SOURCES_DIR}/main.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -67,11 +75,11 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/
+    ${SOUCES_INCLUDE_DIR}
     ${nlohmann_json_SOURCE_DIR}/include/
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${ZeroMQ_INCLUDE_DIR}
-    ${CUDA_INCLUDE_DIRS}
+    ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 target_link_directories(${PROJECT_NAME} PRIVATE
@@ -85,6 +93,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     stdc++fs
     fmt::fmt
     spdlog
-    ${CUDA_LIBS}
+    ${CUDAToolkit_LIBS}
     cuda
 )

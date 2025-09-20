@@ -25,15 +25,15 @@ int errorCheck(StatusType status, const char* file, int line, const char* func, 
 
 /// The use of decltype ensures that the exact type of the 'status' parameter is deduced at compile time.
 /// We are using templates, so the ifs for the ErrorType can be evaluated at compile time.
-#define ERROR_CHECK(type, status, errMsg)                                      \
-    do {                                                                       \
-        int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg); \
-        if (errorMsg != EC_SUCCESS) {                                     \
-            return errorMsg;                                                   \
-        }                                                                      \
+#define ERROR_CHECK(type, status, errMsg)                                                                   \
+    do {                                                                                                    \
+        int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg);\
+        if (errorMsg != EC_SUCCESS) {                                                                       \
+            return errorMsg;                                                                                \
+        }                                                                                                   \
     } while (0)
 
-#define ERROR_CHECK_NO_RET(type, status, errMsg)                               \
-    do {                                                                       \
-        int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg); \
+#define ERROR_CHECK_NO_RET(type, status, errMsg)                                                            \
+    do {                                                                                                    \
+        int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg);\
     } while (0)
