@@ -246,7 +246,7 @@ static void printSubmit(const ipc::SubmitResponse& response) {
 }
 
 static void printGet(const ipc::GetResponse& response) {
-    printf("status=%d\n", static_cast<int>(response.status()));
+    ERROR_CHECK_NO_RET(ErrorType::IPC, response.status(), "Error in response");
     if (!response.has_result()) {
         if (response.status() == ipc::ST_NOT_FINISHED) {
             printf("Result: NOT FINISHED\n");
@@ -268,7 +268,6 @@ static void printGet(const ipc::GetResponse& response) {
         break;
     case ipc::Result::VALUE_NOT_SET:
     default:
-        printf("No result set\n");
         break;
     }
 }

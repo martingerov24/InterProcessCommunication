@@ -169,7 +169,7 @@ ipc::Status AlgoRunnerIpml::runStr(
 }
 
 void AlgoRunnerIpml::workerLoop() {
-    while(running.load() == false) {
+    while(running.load()) {
         std::shared_ptr<AlgoRunnerIpml::Job> job;
         {
             std::unique_lock<std::mutex> lk(qMtx);

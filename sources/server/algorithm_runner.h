@@ -10,13 +10,13 @@ namespace server {
         int deinit();
 
         int run(
-            const ipc::EnvelopeReq& request,
-            ipc::EnvelopeResp& response
+            const ipc::SubmitRequest& request,
+            ipc::SubmitResponse& response
         );
 
         int get(
-            const ipc::EnvelopeReq& request,
-            ipc::EnvelopeResp& response
+            const ipc::GetRequest& request,
+            ipc::GetResponse& response
         );
     private:
         std::unique_ptr<AlgoRunnerIpml>* outImpl = nullptr;

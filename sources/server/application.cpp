@@ -91,6 +91,33 @@ int Application::deinit() {
     return EC_SUCCESS;
 }
 
+static int handleEnvelope(
+    server::AlgoRunner& runner,
+    const ipc::EnvelopeReq& request,
+    ipc::EnvelopeResp& response
+) {
+    switch (request.req_case()) {
+    case ipc::EnvelopeReq::kSubmit: {
+        const ipc::SubmitRequest& sreq = request.submit();
+        ipc::SubmitResponse sresp;
+        int result = runner.run(sreq, sresp);
+        *response.mutable_submit() = std::move(sresp);
+        return result;
+    }
+    case ipc::EnvelopeReq::kGet: {
+        const ipc::GetRequest& greq = request.get();
+        ipc::GetResponse gresp;
+        int result = runner.get(greq, gresp);
+        *response.mutable_get() = std::move(gresp);
+        return result;
+    }
+    case ipc::EnvelopeReq::REQ_NOT_SET:
+    default:
+        response.mutable_get()->set_status(ipc::ST_ERROR_INVALID_INPUT);
+        return EC_FAILURE;
+    }
+}
+
 int Application::run() {
     if (mInitialized == false) {
         spdlog::error("Application is not initialized");
@@ -111,33 +138,33 @@ int Application::run() {
             std::string clientId = recvMsgs[0].to_string();
             std::string payload = recvMsgs.back().to_string();
             ipc::EnvelopeReq request;
-            bool res = request.ParseFromString(payload);
-            if (res == false) {
-                spdlog::error("Failed to parse request from client {}", clientId);
+            if (request.ParseFromString(payload) == false) {
+                spdlog::error("Bad EnvelopeReq from client {}", clientId);
+                ipc::EnvelopeResp err;
+                err.mutable_get()->set_status(ipc::ST_ERROR_INVALID_INPUT);
+                std::string buf; err.SerializeToString(&buf);
+                zmq::message_t reply(buf.size());
+                memcpy(reply.data(), buf.data(), buf.size());
+                mRouter.send(recvMsgs[0], zmq::send_flags::sndmore);
+                mRouter.send(reply, zmq::send_flags::none);
                 continue;
             }
-            if (request.has_submit()) {
-                ipc::SubmitResponse response;
-                result = mAlgoRunner.run(request.submit(), response);
-                ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to process envelope from client");
-
-                ipc::EnvelopeResp envelopeResp;
-                *envelopeResp.mutable_submit() = std::move(response);
-
-                std::string serializedResponse;
-                if (envelopeResp.SerializeToString(&serializedResponse) == false) {
-                    spdlog::error("Failed to serialize response for client {}", clientId);
-                    continue;
-                }
-                zmq::message_t idFrame(clientId.data(), clientId.size());
-                zmq::message_t body(serializedResponse.data(), serializedResponse.size());
-
-                zmq::send_result_t bytesSend = mRouter.send(idFrame, zmq::send_flags::sndmore);
-                ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
-
-                bytesSend = mRouter.send(body, zmq::send_flags::none);
-                ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+            ipc::EnvelopeResp envelopeResp;
+            result = handleEnvelope(mAlgoRunner, request, envelopeResp);
+            ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to handle EnvelopeReq");
+            std::string serializedResponse;
+            if (envelopeResp.SerializeToString(&serializedResponse) == false) {
+                spdlog::error("Failed to serialize response for client {}", clientId);
+                continue;
             }
+            zmq::message_t idFrame(clientId.data(), clientId.size());
+            zmq::message_t body(serializedResponse.data(), serializedResponse.size());
+
+            zmq::send_result_t bytesSend = mRouter.send(idFrame, zmq::send_flags::sndmore);
+            ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+
+            bytesSend = mRouter.send(body, zmq::send_flags::none);
+            ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
         } catch (const zmq::error_t& e) {
             if (e.num() == EINTR || e.num() == ETERM) {
                 spdlog::info("ROUTER interrupted (errno={}), shutting down", e.num());

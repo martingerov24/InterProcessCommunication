@@ -22,8 +22,14 @@ static const char* statusToStr(ipc::Status s) {
 int handleIpcError(ipc::Status status) {
     if (status != ipc::ST_SUCCESS) {
         const char* errorName = statusToStr(status);
-        printf("IPC Error: [%s]\n", errorName);
-        spdlog::error("IPC Error: [{}]", errorName);
+        if (status == ipc::ST_NOT_FINISHED) {
+            printf("IPC Info: [%s]\n", errorName);
+            spdlog::info("IPC Error: [{}]", errorName);
+            return EC_SUCCESS;
+        } else {
+            printf("IPC Error: [%s]\n", errorName);
+            spdlog::error("IPC Error: [{}]", errorName);
+        }
         return static_cast<int>(status);
     }
 
