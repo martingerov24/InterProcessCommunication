@@ -12,19 +12,26 @@ namespace client {
         int recvEnvelope(ipc::EnvelopeResp& out);
 
         explicit Application(
+            const std::atomic<bool>& sigStop,
             const char* endpoint,
             const int port,
-            const int receiveTimeoutMs
+            const int receiveTimeoutMs = 3000
         );
 
     public:
         static Application& get();
 
-        static int create(const char* address, int port) noexcept;
+        static int create(
+            const std::atomic<bool>& sigStop,
+            const char* address,
+            int port
+        ) noexcept;
 
         ~Application();
 
         int init();
+
+        int run();
 
         int deinit();
 
@@ -44,23 +51,12 @@ namespace client {
             const uint32_t timeoutMs,
             ipc::GetResponse& out
         ) ;
-
-        static ipc::SubmitRequest makeMath(
-            ipc::MathOp op,
-            int32_t a,
-            int32_t b
-        );
-
-        static ipc::SubmitRequest makeStr(
-            ipc::StrOp op,
-            const std::string& s1,
-            const std::string& s2
-        );
     private:
         zmq::context_t mCtx;
         zmq::socket_t mSocket;
         const char* mEndpoint;
         const int mReceiveTimeoutMs;
         const int port;
+        const std::atomic<bool>& sigStop;
     };
 } // namespace client

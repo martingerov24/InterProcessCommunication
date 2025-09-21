@@ -9,14 +9,15 @@
 using namespace server;
 
 static std::shared_ptr<server::Application> appPtr = nullptr;
-static std::atomic<bool> sigStop{false};
 
 Application::Application(
+    const std::atomic<bool>& sigStop,
     const char* address,
     const int port
 ) noexcept
 : mAddress(address)
-, mPort(port) {}
+, mPort(port)
+, sigStop(sigStop) {}
 
 Application& Application::get() {
     assert(appPtr != nullptr);
@@ -24,6 +25,7 @@ Application& Application::get() {
 }
 
 int Application::create(
+    const std::atomic<bool>& sigStop,
     const char* address,
     const int port
 ) noexcept {
@@ -37,7 +39,7 @@ int Application::create(
         spdlog::error("Application instance is already created");
         return EC_FAILURE;
     }
-    appPtr = std::shared_ptr<Application>(new Application(address, port));
+    appPtr = std::shared_ptr<Application>(new Application(sigStop, address, port));
     return EC_SUCCESS;
 }
 
@@ -52,9 +54,13 @@ int Application::init() {
     }
     spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
 
-    const char* bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort).c_str();
-
-    mRouter.bind(bindAddress);
+    const std::string bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort);
+    try {
+        mRouter.bind(bindAddress);
+    } catch (const zmq::error_t& e) {
+        spdlog::error("Failed to bind ROUTER socket at {}: {} (errno={})", bindAddress, e.what(), e.num());
+        return EC_FAILURE;
+    }
 
     mInitialized.store(true);
     return EC_SUCCESS;
@@ -77,15 +83,6 @@ int Application::deinit() {
     return EC_SUCCESS;
 }
 
-void Application::stop() {
-    if (mInitialized == false) {
-        spdlog::error("Application is not initialized");
-        return;
-    }
-    sigStop.store(true, std::memory_order_relaxed);
-    spdlog::info("Stopping Application");
-}
-
 int Application::run() {
     if (mInitialized == false) {
         spdlog::error("Application is not initialized");
@@ -98,39 +95,59 @@ int Application::run() {
         mInitialized.load(std::memory_order_relaxed) &&
         sigStop.load(std::memory_order_relaxed) == false
     ) {
-        std::vector<zmq::message_t> recvMsgs;
-        zmq::recv_result_t zmqResult = zmq::recv_multipart(mRouter, std::back_inserter(recvMsgs));
-        if (zmqResult.has_value() == false) {
-            continue;
-        }
-        std::string clientId = recvMsgs[0].to_string();
-        std::string payload = recvMsgs.back().to_string();
-        ipc::EnvelopeReq request;
-        bool res = request.ParseFromString(payload);
-        if (res == false) {
-            spdlog::error("Failed to parse request from client {}", clientId);
-            continue;
-        }
-        if (request.has_submit()) {
-            ipc::SubmitResponse response;
-            result = algoRunner.run(request.submit(), response);
-            ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to process envelope from client");
-
-            ipc::EnvelopeResp envelopeResp;
-            *envelopeResp.mutable_submit() = std::move(response);
-
-            std::string serializedResponse;
-            if (envelopeResp.SerializeToString(&serializedResponse) == false) {
-                spdlog::error("Failed to serialize response for client {}", clientId);
+        try {
+            std::vector<zmq::message_t> recvMsgs;
+            zmq::recv_result_t zmqResult = zmq::recv_multipart(mRouter, std::back_inserter(recvMsgs));
+            if (zmqResult.has_value() == false) {
                 continue;
             }
-            zmq::message_t idFrame(clientId.data(), clientId.size());
-            zmq::message_t empty;
-            zmq::message_t body(serializedResponse.data(), serializedResponse.size());
+            std::string clientId = recvMsgs[0].to_string();
+            std::string payload = recvMsgs.back().to_string();
+            ipc::EnvelopeReq request;
+            bool res = request.ParseFromString(payload);
+            if (res == false) {
+                spdlog::error("Failed to parse request from client {}", clientId);
+                continue;
+            }
+            if (request.has_submit()) {
+                ipc::SubmitResponse response;
+                result = algoRunner.run(request.submit(), response);
+                ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to process envelope from client");
 
-            mRouter.send(idFrame, zmq::send_flags::sndmore);
-            mRouter.send(empty, zmq::send_flags::sndmore);
-            mRouter.send(body, zmq::send_flags::none);
+                ipc::EnvelopeResp envelopeResp;
+                *envelopeResp.mutable_submit() = std::move(response);
+
+                std::string serializedResponse;
+                if (envelopeResp.SerializeToString(&serializedResponse) == false) {
+                    spdlog::error("Failed to serialize response for client {}", clientId);
+                    continue;
+                }
+                zmq::message_t idFrame(clientId.data(), clientId.size());
+                zmq::message_t body(serializedResponse.data(), serializedResponse.size());
+
+                zmq::send_result_t bytesSend = mRouter.send(idFrame, zmq::send_flags::sndmore);
+                ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+
+                bytesSend = mRouter.send(body, zmq::send_flags::none);
+                ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+            }
+        } catch (const zmq::error_t& e) {
+            if (e.num() == EINTR || e.num() == ETERM) {
+                spdlog::info("ROUTER interrupted (errno={}), shutting down", e.num());
+                break;
+            } else {
+                spdlog::error("ZeroMQ error: {}", e.what());
+                result = EC_FAILURE;
+                break;
+            }
+        } catch (const std::exception& e) {
+            spdlog::error("Standard exception: {}", e.what());
+            result = EC_FAILURE;
+            break;
+        } catch (...) {
+            spdlog::error("Unknown exception occurred");
+            result = EC_FAILURE;
+            break;
         }
     }
     return EC_SUCCESS;

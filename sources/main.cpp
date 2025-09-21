@@ -67,20 +67,26 @@ int main(int argc, char *argv[]) {
         return -1;
     }
     spdlog::info("Type: {}", type);
+    std::signal(SIGINT, stopHandle);
+    std::signal(SIGTERM, stopHandle);
+
     if (type == "server") {
-        std::signal(SIGINT, server_stop);
-        std::signal(SIGTERM, server_stop);
-        int result = server_initialize("localhost", 5555);
+        int result = serverInitialize("0.0.0.0", 24737);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
-        result = server_run();
+
+        result = serverRun();
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the server application");
-        result = server_deinitialize();
+
+        result = serverDeinitialize();
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize the server application");
     } else if ("client") {
-        int result = client_initialize("localhost", 5555);
+        int result = clientInitialize("127.0.0.1", 24737);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
 
-        result = client_deinitialize();
+        result = clientStart();
+        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the client application");
+
+        result = clientDeinitialize();
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize the client application");
     } else {
         spdlog::error("Unknown type: {}", type);

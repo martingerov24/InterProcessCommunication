@@ -2,6 +2,7 @@
 #include <cuda.h>
 #include "spdlog/spdlog.h"
 #include "ipc.pb.h"
+#include "zmq.hpp"
 
 static const char* statusToStr(ipc::Status s) {
     switch (s) {
@@ -19,8 +20,18 @@ static const char* statusToStr(ipc::Status s) {
 int handleIpcError(ipc::Status status, const char* file, int line, const char* func, const char* msg) {
     if (status != ipc::ST_SUCCESS) {
         const char* errorName = statusToStr(status);
+        printf("IPC Error: [%s]\n", errorName);
         spdlog::error("IPC Error: [{}] | File: {} | Line: {} | Function: {} | Message: {}", errorName, file, line, func, msg ? msg : "NONE");
         return static_cast<int>(status);
+    }
+
+    return EC_SUCCESS;
+}
+
+int handleZmqSendError(zmq::send_result_t status, const char* file, int line, const char* func, const char* msg) {
+    if (status.has_value() == false) {
+        spdlog::error("ZMQ Send Error: [Failed to send message] | File: {} | Line: {} | Function: {} | Message: {}", file, line, func, msg ? msg : "NONE");
+        return EC_FAILURE;
     }
 
     return EC_SUCCESS;
@@ -53,7 +64,9 @@ int handleRegularError(int status, const char* file, int line, const char* func,
 
 template<ErrorType Type, typename StatusType>
 int errorCheck(StatusType status, const char* file, int line, const char* func, const char* msg) {
-    if constexpr (Type == ErrorType::IPC) {
+    if constexpr (Type == ErrorType::ZMQ_SEND) {
+        return handleZmqSendError(status, file, line, func, msg);
+    } else if constexpr (Type == ErrorType::IPC) {
         return handleIpcError(status, file, line, func, msg);
     } else if constexpr (Type == ErrorType::CUDA) {
         return handleCUDAError(status, file, line, func, msg);
@@ -64,6 +77,7 @@ int errorCheck(StatusType status, const char* file, int line, const char* func, 
     }
 }
 
+template int errorCheck<ErrorType::ZMQ_SEND, zmq::send_result_t>(zmq::send_result_t status, const char* file, int line, const char* func, const char* msg);
 template int errorCheck<ErrorType::IPC, ipc::Status>(ipc::Status status, const char* file, int line, const char* func, const char* msg);
 template int errorCheck<ErrorType::CUDA, CUresult>(CUresult status, const char* file, int line, const char* func, const char* msg);
 template int errorCheck<ErrorType::DEFAULT, int>(int status, const char* file, int line, const char* func, const char* msg);

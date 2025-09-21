@@ -12,6 +12,7 @@ services:
     command: tail -f  /dev/null
     restart: always
     privileged: true
+    network_mode: host
     runtime: nvidia
     volumes:
       - ./:/app/
