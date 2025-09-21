@@ -53,7 +53,8 @@ int Application::init() {
         return EC_FAILURE;
     }
     spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
-
+    int result = mAlgoRunner.init();
+    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize AlgoRunner");
     const std::string bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort);
     try {
         mRouter.bind(bindAddress);
@@ -76,6 +77,9 @@ int Application::deinit() {
         return EC_FAILURE;
     }
 
+    int result = mAlgoRunner.deinit();
+    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize AlgoRunner");
+
     mInitialized.store(false);
     mRouter.close();
 
@@ -88,7 +92,6 @@ int Application::run() {
         spdlog::error("Application is not initialized");
         return EC_FAILURE;
     }
-    AlgoRunner algoRunner;
     spdlog::info("Server running at {}", mAddress);
     int result = EC_SUCCESS;
     while (
@@ -111,7 +114,7 @@ int Application::run() {
             }
             if (request.has_submit()) {
                 ipc::SubmitResponse response;
-                result = algoRunner.run(request.submit(), response);
+                result = mAlgoRunner.run(request.submit(), response);
                 ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to process envelope from client");
 
                 ipc::EnvelopeResp envelopeResp;
