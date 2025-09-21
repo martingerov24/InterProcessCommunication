@@ -18,7 +18,9 @@ extern "C" {
     int serverDeinitialize(void);
 
     /// @brief Stop the server (non-blocking call).
-    void stopHandle(int signo);
+    void stopHandleServer(int signo);
+    /// @brief Stop the client (non-blocking call).
+    void stopHandleClient(int signo);
 
     int clientInitialize(const char* address, int port);
 

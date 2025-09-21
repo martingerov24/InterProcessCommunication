@@ -24,7 +24,6 @@ enum class ErrorType : uint8_t {
 /// @return An integer representing the error code or success (EC_SUCCESS).
 template<ErrorType Type, typename StatusType>
 int errorCheck(StatusType status, const char* file, int line, const char* func, const char* msg);
-
 /// The use of decltype ensures that the exact type of the 'status' parameter is deduced at compile time.
 /// We are using templates, so the ifs for the ErrorType can be evaluated at compile time.
 #define ERROR_CHECK(type, status, errMsg)                                                                   \
@@ -38,4 +37,5 @@ int errorCheck(StatusType status, const char* file, int line, const char* func, 
 #define ERROR_CHECK_NO_RET(type, status, errMsg)                                                            \
     do {                                                                                                    \
         int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg);\
+        (void)errorMsg;                                                                                     \
     } while (0)
