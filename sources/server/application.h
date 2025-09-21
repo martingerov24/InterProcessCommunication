@@ -11,7 +11,8 @@ namespace server {
         explicit Application(
             const std::atomic<bool>& sigStop,
             const char* address,
-            int port
+            const int port,
+            const int theads
         ) noexcept;
         Application(const Application&) = delete;
         Application& operator=(const Application&) = delete;
@@ -20,7 +21,8 @@ namespace server {
         static int create(
             const std::atomic<bool>& sigStop,
             const char* address,
-            int port
+            const int port,
+            const int theads
         ) noexcept;
         int init();
         // Start the server loop (blocking);
@@ -32,7 +34,8 @@ namespace server {
         zmq::socket_t mRouter{mCtx, zmq::socket_type::router};
         AlgoRunner mAlgoRunner;
         const char* mAddress;
-        int mPort;
+        const int mPort;
+        const int mThreads;
         const std::atomic<bool>& sigStop;
         std::atomic<bool> mInitialized{false};
     };

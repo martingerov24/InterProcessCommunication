@@ -7,8 +7,12 @@
 static std::atomic<bool> sigStop{false};
 
 extern "C" {
-    int serverInitialize(const char* address, int port) {
-        int result = server::Application::create(sigStop, address, port);
+    int serverInitialize(
+        const char* address,
+        const int port,
+        const int theads
+    ) {
+        int result = server::Application::create(sigStop, address, port, theads);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the server application");
 
         server::Application& app = server::Application::get();

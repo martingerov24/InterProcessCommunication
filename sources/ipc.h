@@ -7,7 +7,11 @@ extern "C" {
     /// @param address For IPC will be 127 or localhost. For TCP, it can be any valid IP address or hostname.
     /// @param port Port number to bind the server to.
     /// @return error code, 0 for success, any other value indicates failure.
-    int serverInitialize(const char* address, int port);
+    int serverInitialize(
+        const char* address,
+        const int port,
+        const int theads
+    );
 
     /// @brief Run the server (blocking call).
     /// @return error code, 0 for success, any other value indicates failure.
@@ -22,7 +26,10 @@ extern "C" {
     /// @brief Stop the client (non-blocking call).
     void stopHandleClient(int signo);
 
-    int clientInitialize(const char* address, int port);
+    int clientInitialize(
+        const char* address,
+        const int port
+    );
 
     int clientStart(void);
 

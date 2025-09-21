@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     }
     std::string loggingDir = resultParser["logging"].as<std::string>();
     if (loggingDir.empty()) {
-        loggingDir = "./log/log.txt";
+        loggingDir = fmt::format("./{}/log.txt", loggingDir);
     } else {
         loggingDir += "/log.txt";
     }

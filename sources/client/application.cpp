@@ -6,6 +6,8 @@
 #include "error_handling.h"
 #include <random>
 #include <zmq_addon.hpp> // For zmq::recv_multipart
+#include <cctype>
+#include <unordered_map>
 
 using namespace client;
 
@@ -27,8 +29,8 @@ Application::Application(
 ) : mCtx(1)
 , mSocket(mCtx, zmq::socket_type::dealer)
 , mEndpoint(endpoint)
-, port(port)
 , mReceiveTimeoutMs(receiveTimeoutMs)
+, port(port)
 , sigStop(sigStop) {}
 
 static std::shared_ptr<client::Application> appPtr = nullptr;
@@ -72,7 +74,7 @@ int Application::init() {
 }
 
 int Application::deinit() {
-    mSocket.close(); // ZMQ handles the context cleanup, and this won't make any issue if called multiple times.
+    mSocket.close(); // ZMQ handles the context cleanup, safe if called multiple times.
     return EC_SUCCESS;
 }
 
@@ -196,7 +198,6 @@ int Application::getResult(
     return EC_SUCCESS;
 }
 
-
 static bool insensitiveEquals(const char* a, const char* b) {
     for (; *a && *b; ++a, ++b) {
         if (std::tolower((unsigned char)*a) != std::tolower((unsigned char)*b)) {
@@ -244,6 +245,34 @@ static void printSubmit(const ipc::SubmitResponse& response) {
     }
 }
 
+static void printGet(const ipc::GetResponse& response) {
+    printf("status=%d\n", static_cast<int>(response.status()));
+    if (!response.has_result()) {
+        if (response.status() == ipc::ST_NOT_FINISHED) {
+            printf("Result: NOT FINISHED\n");
+        } else {
+            printf("No result payload\n");
+        }
+        return;
+    }
+    const ipc::Result& value = response.result();
+    switch (value.value_case()) {
+    case ipc::Result::kIntResult:
+        printf("Result: Int=%d\n", value.int_result());
+        break;
+    case ipc::Result::kPosition:
+        printf("Result: Pos=%d\n", value.position());
+        break;
+    case ipc::Result::kStrResult:
+        printf("Result: Str=%s\n", value.str_result().c_str());
+        break;
+    case ipc::Result::VALUE_NOT_SET:
+    default:
+        printf("No result set\n");
+        break;
+    }
+}
+
 static void printHelp() {
     printf(
         "Commands:\n"
@@ -253,6 +282,8 @@ static void printHelp() {
         "  block/non-block div a b        \n"
         "  block/non-block concat s1 s2   \n"
         "  block/non-block find hay needle\n"
+        "  get <ticket> [nowait | wait <ms>]  (retrieve result for non-blocking ticket)\n"
+        "  list                               (list pending tickets)\n"
         "  quit | exit\n"
     );
 }
@@ -287,7 +318,6 @@ namespace client {
 
 int Application::run() {
     client::Application& app = client::Application::get();
-    // If you later add 'get', keep tickets in a map. For now we just print tickets.
     std::unordered_map<uint64_t, ipc::Ticket> pending;
 
     printf("Client started. Type 'help' for commands.\n");
@@ -296,7 +326,6 @@ int Application::run() {
     int result = EC_SUCCESS;
     while (sigStop.load(std::memory_order_relaxed) == false) {
         printf(">> ");
-
         fflush(stdout);
 
         if (!fgets(line, sizeof(line), stdin)) {
@@ -319,11 +348,79 @@ int Application::run() {
             continue;
         }
 
-        char mode[32] = {0};
-        char op[32]   = {0};
-
         char buf[512]; std::snprintf(buf, sizeof(buf), "%s", line);
 
+        // First token may be "get", "list", or a mode (block/non-block)
+        char tok1[32] = {0};
+        if (std::sscanf(buf, "%31s", tok1) != 1) {
+            printf("Bad Command. Type 'help'\n");
+            continue;
+        }
+
+        // ----- GET COMMAND -----
+        if (insensitiveEquals(tok1, "get")) {
+            // Forms:
+            //   get <ticket>
+            //   get <ticket> nowait
+            //   get <ticket> wait <ms>
+            char ticketStr[64] = {0};
+            char waitTok[32] = {0};
+            unsigned ms = 0;
+            int n = std::sscanf(buf, "%*31s %63s %31s %u", ticketStr, waitTok, &ms);
+            if (n < 1) {
+                printf("Usage: get <ticket> [nowait | wait <ms>]\n");
+                continue;
+            }
+            uint64_t ticketId = std::strtoull(ticketStr, nullptr, 10);
+            auto it = pending.find(ticketId);
+            if (it == pending.end()) {
+                printf("Unknown or already consumed ticket: %llu\n",
+                       (unsigned long long)ticketId);
+                continue;
+            }
+            ipc::GetWaitMode mode = ipc::NO_WAIT;
+            uint32_t timeoutMs = 0;
+            if (n >= 2) {
+                if (insensitiveEquals(waitTok, "nowait")) {
+                    mode = ipc::NO_WAIT;
+                } else if (insensitiveEquals(waitTok, "wait")) {
+                    mode = ipc::WAIT_UP_TO;
+                    timeoutMs = (n >= 3) ? ms : 0u;
+                } else {
+                    printf("Invalid wait mode. Use: nowait | wait <ms>\n");
+                    continue;
+                }
+            }
+            ipc::GetResponse gres;
+            int rc = app.getResult(it->second, mode, timeoutMs, gres);
+            if (rc != EC_SUCCESS) {
+                printf("Error getting result (transport)\n");
+                continue;
+            }
+            printGet(gres);
+            // On finished (either success or error, but not NOT_FINISHED), erase ticket
+            if (gres.status() != ipc::ST_NOT_FINISHED) {
+                pending.erase(it);
+            }
+            continue;
+        }
+
+        // ----- LIST COMMAND -----
+        if (insensitiveEquals(tok1, "list")) {
+            if (pending.empty()) {
+                printf("No pending tickets.\n");
+            } else {
+                printf("Pending tickets:\n");
+                for (const auto& kv : pending) {
+                    printf("  %llu\n", (unsigned long long)kv.first);
+                }
+            }
+            continue;
+        }
+
+        // Otherwise, parse as mode + op
+        char mode[32] = {0};
+        char op[32]   = {0};
         if (std::sscanf(buf, "%31s %31s", mode, op) != 2) {
             printf("Bad Command. Type 'help'\n");
             continue;
@@ -332,7 +429,7 @@ int Application::run() {
         const bool isNonBlocking = isNonblockToken(mode);
         const bool isBlocking = isBlockToken(mode);
         if (isNonBlocking == false && isBlocking == false) {
-            printf("First token must be 'block' or 'non-block'\n");
+            printf("First token must be 'block' or 'non-block or get'\n");
             continue;
         }
 
@@ -371,7 +468,6 @@ int Application::run() {
                 continue;
             }
         } else if (insensitiveEquals(op, "concat")) {
-            // strings: expect two tokens (<=16 each per your spec)
             char s1[64] = {0}, s2[64] = {0};
             if (std::sscanf(buf, "%*31s %*31s %63s %63s", s1, s2) != 2) {
                 printf("Usage: %s concat s1 s2\n", mode);
@@ -411,8 +507,7 @@ int Application::run() {
             } else {
                 printf("Error sending request\n");
             }
-        }
-        else {
+        } else {
             printf("Unknown op. Type 'help'\n");
         }
     }

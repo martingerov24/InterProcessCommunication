@@ -3,20 +3,46 @@
 #include <functional>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <unordered_map>
+#include <deque>
+
 using namespace server;
 
 namespace server {
     struct AlgoRunnerIpml {
     private:
+        struct Job {
+            uint64_t id = 0;
+            ipc::SubmitRequest req;
+            ipc::Status status = ipc::ST_NOT_FINISHED;
+            ipc::Result result;
+            std::mutex m;
+            std::condition_variable cv;
+            bool done = false;
+        };
+
         ipc::Status runMath(
             const ipc::MathArgs& request,
             ipc::Result& response
         );
+
         ipc::Status runStr(
             const ipc::StrArgs& request,
             ipc::Result& response
         );
+
+        void workerLoop();
+
+        uint64_t enqueue(const ipc::SubmitRequest& req);
+
+        std::shared_ptr<Job> findJobById(uint64_t id);
     public:
+        AlgoRunnerIpml(const int threads);
+
         int init();
 
         int deinit();
@@ -31,17 +57,32 @@ namespace server {
             ipc::GetResponse& response
         );
     private:
+
+        std::mutex jobsMtx;
+        std::unordered_map<uint64_t, std::shared_ptr<Job>> jobs;
+
+        std::mutex qMtx;
+        std::condition_variable qCv;
+        std::deque<std::shared_ptr<Job>> jobQueue;
+        std::vector<std::thread> workers;
+
+        std::atomic<uint64_t> nextId{1};
+        const int maxThreads;
+        std::atomic<bool> running{false};
     };
 };
 
+AlgoRunnerIpml::AlgoRunnerIpml(const int threads)
+: maxThreads(threads) {}
+
 // PUBLIC CLASS METHODS
-int AlgoRunner::init() {
+int AlgoRunner::init(const int threads) {
     if (outImpl != nullptr) {
         spdlog::error("AlgoRunner is already initialized");
         return EC_SUCCESS;
     }
-    outImpl = new std::unique_ptr<AlgoRunnerIpml>(new AlgoRunnerIpml());
-    return EC_SUCCESS;
+    outImpl = new std::unique_ptr<AlgoRunnerIpml>(new AlgoRunnerIpml(threads));
+    return (*outImpl)->init();
 }
 
 int AlgoRunner::deinit() {
@@ -49,9 +90,10 @@ int AlgoRunner::deinit() {
         spdlog::error("AlgoRunner is not initialized");
         return EC_SUCCESS;
     }
+    int result = (*outImpl)->deinit();
     delete outImpl;
     outImpl = nullptr;
-    return EC_SUCCESS;
+    return result;
 }
 
 int AlgoRunner::run(
@@ -126,28 +168,137 @@ ipc::Status AlgoRunnerIpml::runStr(
     return ipc::Status::ST_SUCCESS;
 }
 
+void AlgoRunnerIpml::workerLoop() {
+    while(running.load() == false) {
+        std::shared_ptr<AlgoRunnerIpml::Job> job;
+        {
+            std::unique_lock<std::mutex> lk(qMtx);
+            qCv.wait(lk, [&] { return running.load() == false || jobQueue.empty() == false; });
+            if (running.load() == false && jobQueue.empty()) {
+                break;
+            }
+            job = std::move(jobQueue.front());
+            jobQueue.pop_front();
+        }
+
+        ipc::Result result;
+        ipc::Status status = ipc::ST_ERROR_INVALID_INPUT;
+
+        if (job->req.has_math()) {
+            status = runMath(job->req.math(), result);
+        } else if (job->req.has_str()) {
+            status = runStr(job->req.str(), result);
+        } else {
+            status = ipc::ST_ERROR_INVALID_INPUT;
+        }
+
+        {
+            std::lock_guard<std::mutex> g(job->m);
+            job->status = status;
+            job->result.Swap(&result);
+            job->done = true;
+        }
+        job->cv.notify_all();
+    }
+}
+
+uint64_t AlgoRunnerIpml::enqueue(const ipc::SubmitRequest& req) {
+    using namespace std::chrono;
+
+    std::shared_ptr<Job> job = std::make_shared<Job>();
+    static std::atomic<uint64_t> seq{0};
+    auto now = steady_clock::now();
+    uint64_t ts = duration_cast<nanoseconds>(now.time_since_epoch()).count();
+    uint64_t id = (ts << 16) | (seq.fetch_add(1) & 0xFFFF);
+    job->id = id;
+    job->req = req;
+
+    {
+        std::lock_guard<std::mutex> lk(jobsMtx);
+        jobs[id] = job;
+    }
+    {
+        std::lock_guard<std::mutex> lk(qMtx);
+        jobQueue.emplace_back(std::move(job));
+    }
+    qCv.notify_one();
+    return id;
+}
+
+std::shared_ptr<AlgoRunnerIpml::Job> AlgoRunnerIpml::findJobById(uint64_t id) {
+    std::lock_guard<std::mutex> lk(jobsMtx);
+    auto it = jobs.find(id);
+    return it == jobs.end() ? nullptr : it->second;
+}
+
+int AlgoRunnerIpml::init() {
+    if (running.load()) {
+        return EC_SUCCESS;
+    }
+    running.store(true);
+
+    workers.reserve(maxThreads);
+    for (int i = 0; i < maxThreads; ++i) {
+        workers.emplace_back(
+            [this] {
+                workerLoop();
+            }
+        );
+    }
+    return EC_SUCCESS;
+}
+
+int AlgoRunnerIpml::deinit() {
+    if (running.load() == false) {
+        return EC_SUCCESS;
+    }
+    running.store(false);
+    {
+        std::lock_guard<std::mutex> lk(qMtx);
+    }
+    qCv.notify_all();
+    for (std::thread& thead : workers) {
+        if (thead.joinable()) {
+            thead.join();
+        }
+    }
+    workers.clear();
+    return EC_SUCCESS;
+}
+
 int AlgoRunnerIpml::run(
     const ipc::SubmitRequest& request,
     ipc::SubmitResponse& response
 ) {
     const ipc::SubmitMode mode = request.mode();
-    if (mode != ipc::SubmitMode::BLOCKING) {
-        response.set_status(ipc::ST_ERROR_INVALID_INPUT);
+    if (mode == ipc::SubmitMode::BLOCKING) {
+        ipc::Status result = ipc::ST_SUCCESS;
+        ipc::Result* out = response.mutable_result();
+        if (request.has_math()) {
+            result = runMath(request.math(), *out);
+            response.set_status(result);
+            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
+        } else if (request.has_str()) {
+            result = runStr(request.str(), *out);
+            response.set_status(result);
+            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
+        } else {
+            response.set_status(ipc::ST_ERROR_INVALID_INPUT);
+        }
         return EC_SUCCESS;
     }
-    ipc::Status result = ipc::ST_SUCCESS;
-    ipc::Result* out = response.mutable_result();
-    if (request.has_math()) {
-        result = runMath(request.math(), *out);
-        response.set_status(result);
-        ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
-    } else if (request.has_str()) {
-        result = runStr(request.str(), *out);
-        response.set_status(result);
-        ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
-    } else {
-        response.set_status(ipc::ST_ERROR_INVALID_INPUT);
+    if (mode == ipc::SubmitMode::NONBLOCKING) {
+        if (request.has_math() == false && request.has_str() == false) {
+            response.set_status(ipc::ST_ERROR_INVALID_INPUT);
+            return EC_SUCCESS;
+        }
+        const uint64_t id = enqueue(request);
+        response.set_status(ipc::ST_NOT_FINISHED);
+
+        response.mutable_ticket()->set_req_id(id);
+        return EC_SUCCESS;
     }
+    response.set_status(ipc::ST_ERROR_INVALID_INPUT);
     return EC_SUCCESS;
 }
 
@@ -155,6 +306,45 @@ int AlgoRunnerIpml::get(
     const ipc::GetRequest& request,
     ipc::GetResponse& response
 ) {
+    const uint64_t id = request.ticket().req_id();
+    std::shared_ptr<server::AlgoRunnerIpml::Job> job = findJobById(id);
+    if (job == nullptr) {
+        response.set_status(ipc::ST_ERROR_INVALID_INPUT);
+        return EC_SUCCESS;
+    }
+
+    if (request.wait_mode() == ipc::NO_WAIT) {
+        std::lock_guard<std::mutex> g(job->m);
+        if (job->done == false) {
+            response.set_status(ipc::ST_NOT_FINISHED);
+            return EC_SUCCESS;
+        }
+        response.set_status(job->status);
+        response.mutable_result()->Swap(&job->result);
+        {
+            std::lock_guard<std::mutex> jl(jobsMtx);
+            jobs.erase(id);
+        }
+        return EC_SUCCESS;
+    }
+
+    if (request.wait_mode() == ipc::WAIT_UP_TO) {
+        const uint32_t ms = request.timeout_ms();
+        std::unique_lock<std::mutex> lk(job->m);
+        if (job->cv.wait_for(lk, std::chrono::milliseconds(ms), [&] { return job->done; }) == false) {
+            response.set_status(ipc::ST_NOT_FINISHED);
+            return EC_SUCCESS;
+        }
+        response.set_status(job->status);
+        response.mutable_result()->Swap(&job->result);
+        {
+            std::lock_guard<std::mutex> jl(jobsMtx);
+            jobs.erase(id);
+        }
+        return EC_SUCCESS;
+    }
+
+    response.set_status(ipc::ST_ERROR_INVALID_INPUT);
     return EC_SUCCESS;
 }
 // ~ PRIVATE CLASS METHODS

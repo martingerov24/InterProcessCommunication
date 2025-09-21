@@ -13,11 +13,14 @@ static std::shared_ptr<server::Application> appPtr = nullptr;
 Application::Application(
     const std::atomic<bool>& sigStop,
     const char* address,
-    const int port
+    const int port,
+    const int threads
 ) noexcept
 : mAddress(address)
 , mPort(port)
-, sigStop(sigStop) {}
+, mThreads(threads)
+, sigStop(sigStop)
+{}
 
 Application& Application::get() {
     assert(appPtr != nullptr);
@@ -27,7 +30,8 @@ Application& Application::get() {
 int Application::create(
     const std::atomic<bool>& sigStop,
     const char* address,
-    const int port
+    const int port,
+    const int threads
 ) noexcept {
     static int instanceCount = 0;
     if (instanceCount >= 1) {
@@ -39,7 +43,7 @@ int Application::create(
         spdlog::error("Application instance is already created");
         return EC_FAILURE;
     }
-    appPtr = std::shared_ptr<Application>(new Application(sigStop, address, port));
+    appPtr = std::shared_ptr<Application>(new Application(sigStop, address, port, threads));
     return EC_SUCCESS;
 }
 
@@ -53,7 +57,7 @@ int Application::init() {
         return EC_FAILURE;
     }
     spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
-    int result = mAlgoRunner.init();
+    int result = mAlgoRunner.init(mThreads);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize AlgoRunner");
     const std::string bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort);
     try {

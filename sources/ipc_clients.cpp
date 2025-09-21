@@ -6,7 +6,7 @@
 
 static std::atomic<bool> sigStop{false};
 extern "C" {
-    int clientInitialize(const char* address, int port) {
+    int clientInitialize(const char* address, const int port) {
         int result = client::Application::create(sigStop, address, port);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the client application");
 

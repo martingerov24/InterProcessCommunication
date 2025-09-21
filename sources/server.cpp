@@ -11,6 +11,7 @@ int main(int argc, char *argv[]) {
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
         ("l,logging", "Directory to save the logging file", cxxopts::value<std::string>()->default_value("./server_log"), "PATH")
+        ("threads", "Number of worker threads", cxxopts::value<int>()->default_value("4"), "INT")
         ("h,help", "Print usage");
 
     auto resultParser = options.parse(argc, argv);
@@ -37,7 +38,8 @@ int main(int argc, char *argv[]) {
     std::signal(SIGINT, stopHandleServer);
     std::signal(SIGTERM, stopHandleServer);
 
-    int result = serverInitialize("0.0.0.0", 24737);
+    const int threads = resultParser["threads"].as<int>();
+    int result = serverInitialize("0.0.0.0", 24737, threads);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
 
     result = serverRun();
