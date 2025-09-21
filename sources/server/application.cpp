@@ -74,7 +74,6 @@ int Application::deinit() {
     mRouter.close();
 
     spdlog::info("Deinitializing Application");
-    appPtr.reset();
     return EC_SUCCESS;
 }
 
@@ -143,10 +142,4 @@ Application::~Application() {
         int result = deinit();
         ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application in destructor");
     }
-    if (appPtr == nullptr) {
-        return;
-    }
-    Application& app = Application::get();
-    int result = app.deinit();
-    ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application");
 }

@@ -7,6 +7,7 @@
 /// Enumeration defining types of errors handled in the system.
 /// If more APIs a re added, extend this enum accordingly. For example, we can add OpenCV, OpenGL, etc.
 enum class ErrorType : uint8_t {
+    IPC, ///< IPC error type.
     CUDA, ///< CUDA error type.
     DEFAULT ///< Default error type for general use.
 };

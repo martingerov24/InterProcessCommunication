@@ -36,13 +36,6 @@ FetchContent_Declare(spdlog
 )
 FetchContent_MakeAvailable(spdlog)
 
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.10.5
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
 find_package(CUDAToolkit REQUIRED)
 find_package(Doxygen)
 if(DOXYGEN_FOUND)
@@ -56,7 +49,6 @@ endif()
 set(SOURCES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/sources)
 set(SOUCES_INCLUDE_DIR
     ${SOURCES_DIR}/third_party
-    ${SOURCES_DIR}/server
     ${SOURCES_DIR}/common
     ${SOURCES_DIR}
 )
@@ -64,6 +56,7 @@ set(SOUCES_INCLUDE_DIR
 set(SOURCES
     ${SOURCES_DIR}/server/algorithm_runner.cpp
     ${SOURCES_DIR}/server/application.cpp
+    ${SOURCES_DIR}/client/application.cpp
     ${SOURCES_DIR}/common/error_handling.cpp
     ${SOURCES_DIR}/ipc.cpp
     ${SOURCES_DIR}/main.cpp
@@ -77,7 +70,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${SOUCES_INCLUDE_DIR}
-    ${nlohmann_json_SOURCE_DIR}/include/
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${ZeroMQ_INCLUDE_DIR}
     ${CUDAToolkit_INCLUDE_DIRS}
@@ -88,7 +80,6 @@ target_link_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    nlohmann_json::nlohmann_json
     ${ZeroMQ_LIBRARY}
     proto_builder
     stdc++fs

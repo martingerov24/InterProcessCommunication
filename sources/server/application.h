@@ -7,7 +7,7 @@ namespace server {
     /// Singleton class representing the server application.
     struct Application {
     private:
-        Application(const char* address, int port) noexcept;
+        explicit Application(const char* address, int port) noexcept;
         Application(const Application&) = delete;
         Application& operator=(const Application&) = delete;
     public:
