@@ -1,36 +1,27 @@
 version: '3.8'
 
 services:
-  app-development:
+  server:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
-      # target: release
-    image: app-development
-    # command: python3.6 /code/application_manager.py --docker --config_path /data/supreme/producer/config/config.json --logging_dir /data/supreme/producer/dataset
-    command: tail -f  /dev/null
-    restart: always
-    privileged: true
-    network_mode: host
-    runtime: nvidia
-    volumes:
-      - ./:/app/
-      - /tmp/:/tmp/
-      - /sockets/:/sockets/
+      target: release
+    image: ipc-application:release
+    container_name: ipc-server
+    command: ["/app/server", "--port", "24737"]
     environment:
-      # Sets an environment variable to make all NVIDIA devices visible to the container.
-      - "NVIDIA_VISIBLE_DEVICES=all"
-    logging:
-      # Specifies the logging driver
-      driver: syslog
-      options:
-        # Customizes log messages with a tag that includes the container ID, making it easier to identify logs from specific containers.
-        tag: "producer_{{.ID}}"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            # Specifies the driver for device handling, in this case, 'nvidia' for GPU devices.
-            - driver: nvidia
-              capabilities: [gpu]
+      LD_LIBRARY_PATH: /app
+    networks: [ipc-application-net]
+    restart: unless-stopped
+
+  base-client:
+    image: ipc-application:release
+    container_name: ipc-client-base
+    command: "tai -f /dev/null"
+    environment:
+      LD_LIBRARY_PATH: /app
+    networks: [ipc-application-net]
+
+networks:
+  ipc-application-net:
+    driver: bridge

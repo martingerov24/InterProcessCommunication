@@ -50,7 +50,6 @@ FetchContent_Declare(spdlog
 FetchContent_MakeAvailable(spdlog)
 
 find_package(Threads REQUIRED)
-find_package(CUDAToolkit QUIET)
 
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/sources)
 set(INC_DIRS
@@ -100,12 +99,6 @@ add_library(${SERVER_CORE_NAME} STATIC
 )
 
 target_link_libraries(${SERVER_CORE_NAME} PUBLIC ${APP_DEP_NAME})
-if (CUDAToolkit_FOUND)
-    target_compile_definitions(${SERVER_CORE_NAME} PUBLIC HAVE_CUDA_DRIVER=1)
-    target_link_libraries(${SERVER_CORE_NAME} PUBLIC CUDA::cuda_driver)
-else()
-    target_compile_definitions(${SERVER_CORE_NAME} PUBLIC HAVE_CUDA_DRIVER=0)
-endif()
 
 set(SERVER_LIB servercore)
 set(CLIENT_STATIC_LIB clientipc_static)
@@ -158,4 +151,21 @@ add_test(
     NAME PyTests
     COMMAND ${Python3_EXECUTABLE} -m pytest ${CMAKE_CURRENT_SOURCE_DIR}/tests/
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+string(TIMESTAMP CURRENT_DATETIME "%Y-%m-%d-%H:%M:%S")
+
+set(RELEASE_DIR ${CMAKE_SOURCE_DIR}/release)
+set(TARGET_DIR ${RELEASE_DIR}/${CURRENT_DATETIME})
+
+install(TARGETS
+    ${SERVER_TARGET}
+    ${CLIENT1_TARGET}
+    ${CLIENT2_TARGET}
+    RUNTIME DESTINATION ${TARGET_DIR}
+)
+
+install(TARGETS
+    ${CLIENT_SHARED_LIB}
+    LIBRARY DESTINATION ${TARGET_DIR}
 )

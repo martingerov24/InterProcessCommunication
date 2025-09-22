@@ -53,6 +53,8 @@ int main(int argc, char *argv[]) {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
+        ("address", "Host name to connect to the server", cxxopts::value<std::string>()->default_value("ipc-server"), "STR")
+        ("port", "Port number to connect to the server", cxxopts::value<int>()->default_value("24737"), "PORT")
         ("so_path", "Path to the shared object file", cxxopts::value<std::string>()->default_value("./libclientipc.so"), "PATH")
         ("l,logging", "Directory to save the logging file", cxxopts::value<std::string>()->default_value("./client_log_2"), "PATH")
         ("h,help", "Print usage");
@@ -90,13 +92,21 @@ int main(int argc, char *argv[]) {
     auto clientDeinitialize = mustSym<fnClientDeinitialize>(handle, "clientDeinitialize");
     auto stopHandle = mustSym<fnStopHandle>(handle, "stopHandleClient");
 
+    const char* address  = resultParser["address"].as<std::string>().c_str();
+    if (address == nullptr || std::strlen(address) == 0) {
+        spdlog::error("Invalid address provided");
+        dlclose(handle);
+        return EC_FAILURE;
+    }
+    const int port = resultParser["port"].as<int>();
+
     std::signal(SIGINT, stopHandle);
     std::signal(SIGTERM, stopHandle);
 
     const int receiveTimeoutMs = 3000;
     const uint8_t execFunc = ExecFunFlags::SUB | ExecFunFlags::DIV | ExecFunFlags::FIND_START;
 
-    int result = clientInitialize("127.0.0.1", 24737, receiveTimeoutMs, execFunc);
+    int result = clientInitialize(address, port, receiveTimeoutMs, execFunc);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
 
     result = clientStart();

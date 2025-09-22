@@ -9,7 +9,6 @@
 enum class ErrorType : uint8_t {
     ZMQ_SEND, ///< ZeroMQ error type.
     IPC, ///< IPC error type.
-    CUDA, ///< CUDA error type.
     DEFAULT ///< Default error type for general use.
 };
 

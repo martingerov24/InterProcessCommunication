@@ -10,6 +10,7 @@ int main(int argc, char *argv[]) {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
+        ("port", "Port number to connect to the server", cxxopts::value<int>()->default_value("24737"), "PORT")
         ("l,logging", "Directory to save the logging file", cxxopts::value<std::string>()->default_value("./server_log"), "PATH")
         ("threads", "Number of worker threads", cxxopts::value<int>()->default_value("4"), "INT")
         ("h,help", "Print usage");
@@ -39,7 +40,8 @@ int main(int argc, char *argv[]) {
     std::signal(SIGTERM, stopHandleServer);
 
     const int threads = resultParser["threads"].as<int>();
-    int result = serverInitialize("0.0.0.0", 24737, threads);
+    const int port = resultParser["port"].as<int>();
+    int result = serverInitialize("0.0.0.0", port, threads);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
 
     result = serverRun();

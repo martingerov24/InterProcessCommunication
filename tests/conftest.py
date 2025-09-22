@@ -162,7 +162,8 @@ class InteractiveProc:
 
 @pytest.fixture
 def client1(server):
-    ip = InteractiveProc([str(CLIENT1_BIN)])
+    argv = [str(CLIENT1_BIN), "--address", server["host"], "--port", str(server["port"])]
+    ip = InteractiveProc(argv)
     banner = ip.until_prompt(timeout=5)
     assert "Client started" in banner
     yield ip
@@ -170,7 +171,8 @@ def client1(server):
 
 @pytest.fixture
 def client2(server):
-    ip = InteractiveProc([str(CLIENT2_BIN)])
+    argv = [str(CLIENT2_BIN), "--address", server["host"], "--port", str(server["port"])]
+    ip = InteractiveProc(argv)
     banner = ip.until_prompt(timeout=5)
     assert "Client started" in banner
     yield ip
