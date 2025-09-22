@@ -10,9 +10,9 @@ extern "C" {
     int serverInitialize(
         const char* address,
         const int port,
-        const int theads
+        const int threads
     ) {
-        int result = server::Application::create(sigStop, address, port, theads);
+        int result = server::Application::create(sigStop, address, port, threads);
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the server application");
 
         server::Application& app = server::Application::get();

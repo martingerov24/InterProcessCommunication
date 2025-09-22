@@ -17,7 +17,7 @@ services:
   base-client:
     image: ipc-application:release
     container_name: ipc-client-base
-    command: "tai -f /dev/null"
+    command: "tail -f /dev/null"
     environment:
       LD_LIBRARY_PATH: /app
     networks: [ipc-application-net]

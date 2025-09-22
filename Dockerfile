@@ -1,17 +1,13 @@
 FROM ubuntu:22.04 as base
-    RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        protobuf-compiler \
-        libzmq3-dev \
-        ca-certificates \
-        libzmq5
-
     WORKDIR /app
 
 FROM base as development
     RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        python3 \
+        python3-pip \
+        protobuf-compiler \
+        libzmq3-dev \
         cmake \
         pkg-config \
         git \
@@ -20,6 +16,7 @@ FROM base as development
         clang-tidy \
         cppcheck \
         python3 \
+        doxygen \
         python3-pip \
         libprotobuf-dev \
         protobuf-compiler \
