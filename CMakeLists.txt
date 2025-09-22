@@ -149,3 +149,13 @@ endforeach()
 
 message(STATUS "ZeroMQ_INCLUDE_DIR = ${ZeroMQ_INCLUDE_DIR}")
 message(STATUS "ZeroMQ_LIBRARY     = ${ZeroMQ_LIBRARY}")
+
+enable_testing()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(
+    NAME PyTests
+    COMMAND ${Python3_EXECUTABLE} -m pytest ${CMAKE_CURRENT_SOURCE_DIR}/tests/
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
