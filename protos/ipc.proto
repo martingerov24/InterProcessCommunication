@@ -82,6 +82,11 @@ message GetResponse {
     Result result = 2;
 }
 
+message FirstHandshake {
+    string client_name = 1;
+    uint32 exec_functions  = 2;
+}
+
 message EnvelopeReq {
     oneof req {
         SubmitRequest submit = 1;
