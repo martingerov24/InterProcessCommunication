@@ -1,0 +1,102 @@
+syntax = "proto3";
+package ipc;
+
+enum MathOp {
+    MATH_ADD = 0;
+    MATH_SUB = 1;
+    MATH_MUL = 2;
+    MATH_DIV = 3;
+}
+
+enum StrOp {
+    STR_CONCAT     = 0;
+    STR_FIND_START = 1;
+}
+
+enum Status {
+    ST_SUCCESS                = 0;
+    ST_ERROR_INVALID_INPUT    = 1;
+    ST_ERROR_DIV_BY_ZERO      = 2;
+    ST_ERROR_SUBSTR_NOT_FOUND = 3;
+    ST_ERROR_STRING_TOO_LONG  = 4;
+    ST_ERROR_INTERNAL         = 5;
+    ST_NOT_FINISHED           = 6;
+}
+
+message MathArgs {
+    MathOp op = 1;
+    int32 a   = 2;
+    int32 b   = 3;
+}
+
+message StrArgs {
+    StrOp  op = 1;
+    string s1 = 2;
+    string s2 = 3;
+}
+
+message Result {
+    oneof value {
+        int32  int_result = 1; // math result
+        int32  position   = 2; // FindStartPosition of s2 in s1
+        string str_result = 3; // Conc
+    }
+}
+
+message Ticket {
+    uint64 req_id = 1;
+}
+
+enum SubmitMode {
+    BLOCKING    = 0;
+    NONBLOCKING = 1;
+}
+
+message SubmitRequest {
+    SubmitMode mode = 1;
+    oneof payload {
+        MathArgs math = 10;
+        StrArgs  str  = 11;
+    }
+}
+
+message SubmitResponse {
+    Status status = 1;
+    Ticket ticket = 2;
+    Result result = 3;
+}
+
+enum GetWaitMode {
+    NO_WAIT    = 0;
+    WAIT_UP_TO = 1;
+}
+
+message GetRequest {
+    Ticket      ticket     = 1;
+    GetWaitMode wait_mode  = 2;
+    uint32      timeout_ms = 3;
+}
+
+message GetResponse {
+    Status status = 1;
+    Result result = 2;
+}
+
+message FirstHandshake {
+    string client_name = 1;
+    uint32 exec_functions  = 2;
+}
+
+message EnvelopeReq {
+    oneof req {
+        SubmitRequest submit = 1;
+        GetRequest    get    = 2;
+    }
+}
+
+message EnvelopeResp {
+    oneof resp {
+        SubmitResponse submit = 1;
+        GetResponse    get    = 2;
+    }
+}

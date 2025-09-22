@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: release
+    image: ipc-application:release
+    container_name: ipc-server
+    command: ["/app/server", "--port", "24737"]
+    environment:
+      LD_LIBRARY_PATH: /app
+    networks: [ipc-application-net]
+    restart: unless-stopped
+
+  base-client:
+    image: ipc-application:release
+    container_name: ipc-client-base
+    command: "tail -f /dev/null"
+    environment:
+      LD_LIBRARY_PATH: /app
+    networks: [ipc-application-net]
+
+networks:
+  ipc-application-net:
+    driver: bridge
