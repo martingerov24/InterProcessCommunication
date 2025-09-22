@@ -23,15 +23,18 @@ static std::string random_identity(std::size_t n = 8) {
 
 Application::Application(
     const std::atomic<bool>& sigStop,
-    const char* endpoint,
+    const char* address,
     const int port,
-    const int receiveTimeoutMs
+    const int receiveTimeoutMs,
+    const uint8_t execFunFlags
 ) : mCtx(1)
 , mSocket(mCtx, zmq::socket_type::dealer)
-, mEndpoint(endpoint)
+, mIdentity(random_identity())
+, mEndpoint(address)
 , mReceiveTimeoutMs(receiveTimeoutMs)
-, port(port)
-, sigStop(sigStop) {}
+, mPort(port)
+, mExecFunFlags(execFunFlags)
+, mSigStop(sigStop) {}
 
 static std::shared_ptr<client::Application> appPtr = nullptr;
 
@@ -43,7 +46,9 @@ Application& Application::get() {
 int Application::create(
     const std::atomic<bool>& sigStop,
     const char* address,
-    const int port
+    const int port,
+    const int receiveTimeoutMs,
+    const uint8_t execFunFlags
 ) noexcept {
     static int instanceCount = 0;
     if (instanceCount >= 1) {
@@ -55,17 +60,27 @@ int Application::create(
         spdlog::error("Application instance is already created");
         return EC_FAILURE;
     }
-    appPtr = std::shared_ptr<Application>(new Application(sigStop, address, port));
+    appPtr = std::shared_ptr<Application>(
+        new Application(
+            sigStop,
+            address,
+            port,
+            receiveTimeoutMs,
+            execFunFlags
+        )
+    );
     return EC_SUCCESS;
 }
 
 int Application::init() {
-    const std::string endpoint = fmt::format("tcp://{}:{}", mEndpoint, port);
+    const std::string endpoint = fmt::format("tcp://{}:{}", mEndpoint, mPort);
     try {
-        mSocket.set(zmq::sockopt::routing_id, random_identity());
+        mSocket.set(zmq::sockopt::routing_id, mIdentity);
         mSocket.set(zmq::sockopt::linger, 100);
         mSocket.set(zmq::sockopt::rcvtimeo, mReceiveTimeoutMs);
         mSocket.connect(endpoint);
+        int result = sendFirstHandshake();
+        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to send first handshake");
     } catch (const zmq::error_t& e) {
         spdlog::error("Failed to connect to {}: {}", endpoint, e.what());
         return EC_FAILURE;
@@ -80,6 +95,23 @@ int Application::deinit() {
 
 Application::~Application() {
     deinit();
+}
+
+int Application::sendFirstHandshake() {
+    ipc::FirstHandshake handshake;
+    handshake.set_client_name(mIdentity);
+    uint32_t funcFlags = static_cast<uint32_t>(mExecFunFlags);
+    handshake.set_exec_functions(funcFlags);
+    std::string buf;
+    if (handshake.SerializeToString(&buf) == false) {
+        spdlog::error("Failed to serialize FirstHandshake");
+        return EC_FAILURE;
+    }
+    zmq::message_t frame(buf.size());
+    memcpy(frame.data(), buf.data(), buf.size());
+    zmq::send_result_t result = mSocket.send(frame, zmq::send_flags::none);
+    ERROR_CHECK(ErrorType::ZMQ_SEND, result, "Failed to send message");
+    return EC_SUCCESS;
 }
 
 int Application::sendEnvelope(const ipc::EnvelopeReq& env) {
@@ -323,7 +355,7 @@ int Application::run() {
 
     char line[512];
     int result = EC_SUCCESS;
-    while (sigStop.load(std::memory_order_relaxed) == false) {
+    while (mSigStop.load(std::memory_order_relaxed) == false) {
         printf(">> ");
         fflush(stdout);
 

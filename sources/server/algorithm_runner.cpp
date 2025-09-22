@@ -28,12 +28,12 @@ namespace server {
         ipc::Status runMath(
             const ipc::MathArgs& request,
             ipc::Result& response
-        );
+        ) const;
 
         ipc::Status runStr(
             const ipc::StrArgs& request,
             ipc::Result& response
-        );
+        ) const;
 
         void workerLoop();
 
@@ -99,7 +99,7 @@ int AlgoRunner::deinit() {
 int AlgoRunner::run(
     const ipc::SubmitRequest& request,
     ipc::SubmitResponse& response
-) {
+) const {
     if (outImpl == nullptr) {
         spdlog::error("AlgoRunner is not initialized");
         return EC_FAILURE;
@@ -110,7 +110,7 @@ int AlgoRunner::run(
 int AlgoRunner::get(
     const ipc::GetRequest& request,
     ipc::GetResponse& response
-) {
+) const {
     if (outImpl == nullptr) {
         spdlog::error("AlgoRunner is not initialized");
         return EC_FAILURE;
@@ -123,7 +123,7 @@ int AlgoRunner::get(
 ipc::Status AlgoRunnerIpml::runMath(
     const ipc::MathArgs& request,
     ipc::Result& response
-) {
+) const {
     switch (request.op()) {
     case ipc::MATH_ADD:
         response.set_int_result(request.a() + request.b());
@@ -149,7 +149,7 @@ ipc::Status AlgoRunnerIpml::runMath(
 ipc::Status AlgoRunnerIpml::runStr(
     const ipc::StrArgs& request,
     ipc::Result& response
-) {
+) const {
     if (request.op() == ipc::STR_CONCAT) {
         std::string r = request.s1() + request.s2();
         if (r.size() > 32) {

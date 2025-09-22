@@ -12,12 +12,12 @@ namespace server {
         int run(
             const ipc::SubmitRequest& request,
             ipc::SubmitResponse& response
-        );
+        ) const;
 
         int get(
             const ipc::GetRequest& request,
             ipc::GetResponse& response
-        );
+        ) const ;
     private:
         std::unique_ptr<AlgoRunnerIpml>* outImpl = nullptr;
     };

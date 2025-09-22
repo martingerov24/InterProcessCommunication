@@ -23,7 +23,7 @@ namespace fs = std::experimental::filesystem;
 #endif
 
 
-using fnClientInitialize = int (*)(const char*, int);
+using fnClientInitialize = int (*)(const char*, const int, const int, const uint8_t);
 using fnClientStart = int (*)(void);
 using fnClientDeinitialize = int (*)(void);
 using fnStopHandle = void (*)(int);
@@ -63,8 +63,8 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     std::string loggingDir = resultParser["logging"].as<std::string>();
-    if (loggingDir.empty()) {
-        loggingDir = fmt::format("./{}/log.txt", loggingDir);
+    if (loggingDir.empty() == true) {
+        loggingDir = "./client_log_2/log.txt";
     } else {
         loggingDir += "/log.txt";
     }
@@ -93,7 +93,10 @@ int main(int argc, char *argv[]) {
     std::signal(SIGINT, stopHandle);
     std::signal(SIGTERM, stopHandle);
 
-    int result = clientInitialize("127.0.0.1", 24737);
+    const int receiveTimeoutMs = 3000;
+    const uint8_t execFunc = ExecFunFlags::SUB | ExecFunFlags::DIV | ExecFunFlags::FIND_START;
+
+    int result = clientInitialize("127.0.0.1", 24737, receiveTimeoutMs, execFunc);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
 
     result = clientStart();

@@ -6,8 +6,24 @@
 
 static std::atomic<bool> sigStop{false};
 extern "C" {
-    int clientInitialize(const char* address, const int port) {
-        int result = client::Application::create(sigStop, address, port);
+    int clientInitialize(
+        const char* address,
+        const int port,
+        const int receiveTimeoutMs,
+        const uint8_t execFunFlags
+    ) {
+        if (verifyExecCaps(execFunFlags) == false) {
+            spdlog::error("Invalid execFunFlags: {}", (int)execFunFlags);
+            return EC_FAILURE;
+        }
+
+        int result = client::Application::create(
+            sigStop,
+            address,
+            port,
+            receiveTimeoutMs,
+            execFunFlags
+        );
         ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the client application");
 
         client::Application& app = client::Application::get();

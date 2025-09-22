@@ -54,6 +54,7 @@ find_package(CUDAToolkit QUIET)
 
 set(SRC_DIR ${CMAKE_SOURCE_DIR}/sources)
 set(INC_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/includes
     ${SRC_DIR}
     ${SRC_DIR}/third_party
     ${SRC_DIR}/common
@@ -64,11 +65,13 @@ set(SERVER_LIB_SRCS
     ${SRC_DIR}/server/algorithm_runner.cpp
     ${SRC_DIR}/server/application.cpp
     ${SRC_DIR}/ipc_server.cpp
+    ${SRC_DIR}/ipc.cpp
 )
 
 set(CLIENT_LIB_SRCS
     ${SRC_DIR}/client/application.cpp
     ${SRC_DIR}/ipc_clients.cpp
+    ${SRC_DIR}/ipc.cpp
 )
 
 set(APP_DEP_NAME app_deps)

@@ -5,7 +5,7 @@
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include "algorithm_runner.h"
-
+#include "ipc.h"
 using namespace server;
 
 static std::shared_ptr<server::Application> appPtr = nullptr;
@@ -19,7 +19,7 @@ Application::Application(
 : mAddress(address)
 , mPort(port)
 , mThreads(threads)
-, sigStop(sigStop)
+, mSigStop(sigStop)
 {}
 
 Application& Application::get() {
@@ -91,23 +91,54 @@ int Application::deinit() {
     return EC_SUCCESS;
 }
 
-static int handleEnvelope(
-    server::AlgoRunner& runner,
-    const ipc::EnvelopeReq& request,
-    ipc::EnvelopeResp& response
+static bool clientHasCapabilityFor(
+    const ipc::SubmitRequest& sreq,
+    uint8_t clientCaps
 ) {
+    uint8_t required = 0;
+
+    if (sreq.has_math()) {
+        switch (sreq.math().op()) {
+        case ipc::MATH_ADD: required = ExecFunFlags::ADD; break;
+        case ipc::MATH_SUB: required = ExecFunFlags::SUB; break;
+        case ipc::MATH_MUL: required = ExecFunFlags::MULT; break;
+        case ipc::MATH_DIV: required = ExecFunFlags::DIV;  break;
+        default: return false;
+        }
+    } else if (sreq.has_str()) {
+        switch (sreq.str().op()) {
+        case ipc::STR_CONCAT:     required = ExecFunFlags::CONCAT;     break;
+        case ipc::STR_FIND_START: required = ExecFunFlags::FIND_START; break;
+        default: return false;
+        }
+    } else {
+        return false;
+    }
+    return (clientCaps & required) != 0;
+}
+
+int Application::handleEnvelope(
+    const ipc::EnvelopeReq& request,
+    const uint8_t clientExecCaps,
+    ipc::EnvelopeResp& response
+) const {
     switch (request.req_case()) {
     case ipc::EnvelopeReq::kSubmit: {
         const ipc::SubmitRequest& sreq = request.submit();
+        bool capValid = clientHasCapabilityFor(sreq, clientExecCaps);
+        if (capValid == false) {
+            response.mutable_submit()->set_status(ipc::ST_ERROR_INVALID_INPUT);
+            return EC_SUCCESS;
+        }
         ipc::SubmitResponse sresp;
-        int result = runner.run(sreq, sresp);
+        int result = mAlgoRunner.run(sreq, sresp);
         *response.mutable_submit() = std::move(sresp);
         return result;
     }
     case ipc::EnvelopeReq::kGet: {
         const ipc::GetRequest& greq = request.get();
         ipc::GetResponse gresp;
-        int result = runner.get(greq, gresp);
+        int result = mAlgoRunner.get(greq, gresp);
         *response.mutable_get() = std::move(gresp);
         return result;
     }
@@ -127,7 +158,7 @@ int Application::run() {
     int result = EC_SUCCESS;
     while (
         mInitialized.load(std::memory_order_relaxed) &&
-        sigStop.load(std::memory_order_relaxed) == false
+        mSigStop.load(std::memory_order_relaxed) == false
     ) {
         try {
             std::vector<zmq::message_t> recvMsgs;
@@ -137,20 +168,42 @@ int Application::run() {
             }
             std::string clientId = recvMsgs[0].to_string();
             std::string payload = recvMsgs.back().to_string();
-            ipc::EnvelopeReq request;
-            if (request.ParseFromString(payload) == false) {
-                spdlog::error("Bad EnvelopeReq from client {}", clientId);
+            auto sendBadResponse = [&] () {
                 ipc::EnvelopeResp err;
                 err.mutable_get()->set_status(ipc::ST_ERROR_INVALID_INPUT);
                 std::string buf; err.SerializeToString(&buf);
                 zmq::message_t reply(buf.size());
                 memcpy(reply.data(), buf.data(), buf.size());
-                mRouter.send(recvMsgs[0], zmq::send_flags::sndmore);
-                mRouter.send(reply, zmq::send_flags::none);
+                zmq::send_result_t resultSend = mRouter.send(recvMsgs[0], zmq::send_flags::sndmore);
+                ERROR_CHECK_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
+                resultSend = mRouter.send(reply, zmq::send_flags::none);
+                ERROR_CHECK_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
+            };
+            if (mClientExecCaps.find(clientId) == mClientExecCaps.end()) {
+                spdlog::info("New client connected: {}", clientId);
+                ipc::FirstHandshake handshake;
+                if (handshake.ParseFromString(payload) == false) {
+                    spdlog::error("Bad FirstHandshake from client {}", clientId);
+                    sendBadResponse();
+                    continue;
+                }
+                // The cast can happen "automatically", but I want to show that we are casting from uint32 to uint8
+                uint8_t funcFlags = static_cast<uint8_t>(handshake.exec_functions());
+                bool capsOk = verifyExecCaps(funcFlags);
+                if (capsOk == false) {
+                    sendBadResponse();
+                }
+                mClientExecCaps[clientId] = funcFlags;
+                continue;
+            }
+            ipc::EnvelopeReq request;
+            if (request.ParseFromString(payload) == false) {
+                spdlog::error("Bad EnvelopeReq from client {}", clientId);
+                sendBadResponse();
                 continue;
             }
             ipc::EnvelopeResp envelopeResp;
-            result = handleEnvelope(mAlgoRunner, request, envelopeResp);
+            result = handleEnvelope(request, mClientExecCaps[clientId], envelopeResp);
             ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to handle EnvelopeReq");
             std::string serializedResponse;
             if (envelopeResp.SerializeToString(&serializedResponse) == false) {

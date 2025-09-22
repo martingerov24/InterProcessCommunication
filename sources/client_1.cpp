@@ -1,8 +1,8 @@
-#include "cxxopts.hpp"
-#include "error_handling.h"
-#include <csignal>
-#include <spdlog/spdlog.h>
 #include "spdlog/sinks/rotating_file_sink.h"
+#include <spdlog/spdlog.h>
+#include "error_handling.h"
+#include "cxxopts.hpp"
+#include <csignal>
 #include "ipc.pb.h"
 #include "ipc.h"
 
@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
-        ("l,logging", "Directory to save the logging file", cxxopts::value<std::string>()->default_value("./client_log"), "PATH")
+        ("l,logging", "Directory to save the logging file", cxxopts::value<std::string>()->default_value("./client_log_1"), "PATH")
         ("h,help", "Print usage");
 
     auto resultParser = options.parse(argc, argv);
@@ -19,8 +19,8 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     std::string loggingDir = resultParser["logging"].as<std::string>();
-    if (loggingDir.empty()) {
-        loggingDir = fmt::format("./{}/log.txt", loggingDir);
+    if (loggingDir.empty() == true) {
+        loggingDir = "./client_log_1/log.txt";
     } else {
         loggingDir += "/log.txt";
     }
@@ -37,7 +37,10 @@ int main(int argc, char *argv[]) {
     std::signal(SIGINT, stopHandleClient);
     std::signal(SIGTERM, stopHandleClient);
 
-    int result = clientInitialize("127.0.0.1", 24737);
+    const int receiveTimeoutMs = 3000;
+    const uint8_t execFunc = ExecFunFlags::ADD | ExecFunFlags::MULT | ExecFunFlags::CONCAT;
+
+    int result = clientInitialize("127.0.0.1", 24737, receiveTimeoutMs, execFunc);
     ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
 
     result = clientStart();
