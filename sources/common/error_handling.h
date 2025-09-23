@@ -37,7 +37,7 @@ int errorCheck(StatusType status, const char* file, int line, const char* func, 
 /// This macro wraps a function call, passes its status to `errorCheck`,
 /// and immediately returns the error code if the status indicates a failure.
 /// The `decltype(status)` ensures the macro is type-safe and works with any status type.
-#define ERROR_CHECK(type, status, errMsg)                                                                   \
+#define RETURN_IF_ERROR(type, status, errMsg)                                                                   \
     do {                                                                                                    \
         int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg);\
         if (errorMsg != EC_SUCCESS) {                                                                       \
@@ -47,10 +47,10 @@ int errorCheck(StatusType status, const char* file, int line, const char* func, 
 
 /// @brief A macro to check for errors without returning.
 ///
-/// This macro is similar to `ERROR_CHECK` but is designed for functions that return `void`.
+/// This macro is similar to `RETURN_IF_ERROR` but is designed for functions that return `void`.
 /// It logs the error but does not interrupt the program's flow. The `(void)errorMsg`
 /// cast is used to suppress "unused variable" warnings.
-#define ERROR_CHECK_NO_RET(type, status, errMsg)                                                            \
+#define PRINT_ERROR_NO_RET(type, status, errMsg)                                                            \
     do {                                                                                                    \
         int errorMsg = errorCheck<type, decltype(status)>(status, __FILE__, __LINE__, __FUNCTION__, errMsg);\
         (void)errorMsg;                                                                                     \

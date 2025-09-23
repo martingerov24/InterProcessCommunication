@@ -58,7 +58,7 @@ int Application::init() {
     }
     spdlog::info("Initializing Application at {}:{}", mAddress, mPort);
     int result = mAlgoRunner.init(mThreads);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize AlgoRunner");
+    RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to initialize AlgoRunner");
     const std::string bindAddress = fmt::format("tcp://{}:{}", mAddress, mPort);
     try {
         mRouter.bind(bindAddress);
@@ -82,7 +82,7 @@ int Application::deinit() {
     }
 
     int result = mAlgoRunner.deinit();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize AlgoRunner");
+    RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to deinitialize AlgoRunner");
 
     mInitialized.store(false);
     mRouter.close();
@@ -175,9 +175,9 @@ int Application::run() {
                 zmq::message_t reply(buf.size());
                 memcpy(reply.data(), buf.data(), buf.size());
                 zmq::send_result_t resultSend = mRouter.send(recvMsgs[0], zmq::send_flags::sndmore);
-                ERROR_CHECK_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
+                PRINT_ERROR_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
                 resultSend = mRouter.send(reply, zmq::send_flags::none);
-                ERROR_CHECK_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
+                PRINT_ERROR_NO_RET(ErrorType::ZMQ_SEND, resultSend, "Failed to send error response to client");
             };
             if (mClientExecCaps.find(clientId) == mClientExecCaps.end()) {
                 spdlog::info("New client connected: {}", clientId);
@@ -204,7 +204,7 @@ int Application::run() {
             }
             ipc::EnvelopeResp envelopeResp;
             result = handleEnvelope(request, mClientExecCaps[clientId], envelopeResp);
-            ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to handle EnvelopeReq");
+            PRINT_ERROR_NO_RET(ErrorType::DEFAULT, result, "Failed to handle EnvelopeReq");
             std::string serializedResponse;
             if (envelopeResp.SerializeToString(&serializedResponse) == false) {
                 spdlog::error("Failed to serialize response for client {}", clientId);
@@ -214,10 +214,10 @@ int Application::run() {
             zmq::message_t body(serializedResponse.data(), serializedResponse.size());
 
             zmq::send_result_t bytesSend = mRouter.send(idFrame, zmq::send_flags::sndmore);
-            ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+            RETURN_IF_ERROR(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
 
             bytesSend = mRouter.send(body, zmq::send_flags::none);
-            ERROR_CHECK(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
+            RETURN_IF_ERROR(ErrorType::ZMQ_SEND, bytesSend, "Failed to send response to client");
         } catch (const zmq::error_t& e) {
             if (e.num() == EINTR || e.num() == ETERM) {
                 spdlog::info("ROUTER interrupted (errno={}), shutting down", e.num());
@@ -244,6 +244,6 @@ Application::~Application() {
     if (mInitialized == true) {
         spdlog::warn("Application is being deinitialized in destructor");
         int result = deinit();
-        ERROR_CHECK_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application in destructor");
+        PRINT_ERROR_NO_RET(ErrorType::DEFAULT, result, "Failed to deinitialize Application in destructor");
     }
 }

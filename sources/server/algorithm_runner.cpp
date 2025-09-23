@@ -4,25 +4,37 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
 #include <unordered_map>
 #include <deque>
+#include <vector>
+#include <memory>
+#include <chrono>
+#include <pthread.h>
+#include <time.h>
 
 using namespace server;
 
 namespace server {
     struct AlgoRunnerIpml {
     private:
+        /// Only waiters on this Job wake up when it finishes.
         struct Job {
             uint64_t id = 0;
             ipc::SubmitRequest req;
             ipc::Status status = ipc::ST_NOT_FINISHED;
             ipc::Result result;
-            std::mutex m;
-            std::condition_variable cv;
+            pthread_mutex_t m;
+            pthread_cond_t cv;
             bool done = false;
+
+            Job() {
+                pthread_mutex_init(&m, nullptr);
+                pthread_cond_init(&cv, nullptr);
+            }
+            ~Job() {
+                pthread_cond_destroy(&cv);
+                pthread_mutex_destroy(&m);
+            }
         };
 
         ipc::Status runMath(
@@ -34,6 +46,12 @@ namespace server {
             const ipc::StrArgs& request,
             ipc::Result& response
         ) const;
+
+        static void* workerCExecution(void* arg) {
+            auto* self = reinterpret_cast<AlgoRunnerIpml*>(arg);
+            self->workerLoop();
+            return nullptr;
+        }
 
         void workerLoop();
 
@@ -57,14 +75,13 @@ namespace server {
             ipc::GetResponse& response
         );
     private:
-
-        std::mutex jobsMtx;
+        pthread_mutex_t jobsMtx = PTHREAD_MUTEX_INITIALIZER;
         std::unordered_map<uint64_t, std::shared_ptr<Job>> jobs;
 
-        std::mutex qMtx;
-        std::condition_variable qCv;
+        pthread_mutex_t qMtx = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t qCv = PTHREAD_COND_INITIALIZER;
         std::deque<std::shared_ptr<Job>> jobQueue;
-        std::vector<std::thread> workers;
+        std::vector<pthread_t> workers;
 
         std::atomic<uint64_t> nextId{1};
         const int maxThreads;
@@ -169,16 +186,20 @@ ipc::Status AlgoRunnerIpml::runStr(
 }
 
 void AlgoRunnerIpml::workerLoop() {
-    while(running.load()) {
+    while (running.load()) {
         std::shared_ptr<AlgoRunnerIpml::Job> job;
         {
-            std::unique_lock<std::mutex> lk(qMtx);
-            qCv.wait(lk, [&] { return running.load() == false || jobQueue.empty() == false; });
+            pthread_mutex_lock(&qMtx);
+            while (running.load() && jobQueue.empty()) {
+                pthread_cond_wait(&qCv, &qMtx);
+            }
             if (running.load() == false && jobQueue.empty()) {
+                pthread_mutex_unlock(&qMtx);
                 break;
             }
             job = std::move(jobQueue.front());
             jobQueue.pop_front();
+            pthread_mutex_unlock(&qMtx);
         }
 
         ipc::Result result;
@@ -192,13 +213,12 @@ void AlgoRunnerIpml::workerLoop() {
             status = ipc::ST_ERROR_INVALID_INPUT;
         }
 
-        {
-            std::lock_guard<std::mutex> g(job->m);
-            job->status = status;
-            job->result.Swap(&result);
-            job->done = true;
-        }
-        job->cv.notify_all();
+        pthread_mutex_lock(&job->m);
+        job->status = status;
+        job->result.Swap(&result);
+        job->done = true;
+        pthread_mutex_unlock(&job->m);
+        pthread_cond_broadcast(&job->cv);
     }
 }
 
@@ -213,22 +233,24 @@ uint64_t AlgoRunnerIpml::enqueue(const ipc::SubmitRequest& req) {
     job->id = id;
     job->req = req;
 
-    {
-        std::lock_guard<std::mutex> lk(jobsMtx);
-        jobs[id] = job;
-    }
-    {
-        std::lock_guard<std::mutex> lk(qMtx);
-        jobQueue.emplace_back(std::move(job));
-    }
-    qCv.notify_one();
+    pthread_mutex_lock(&jobsMtx);
+    jobs[id] = job;
+    pthread_mutex_unlock(&jobsMtx);
+
+    pthread_mutex_lock(&qMtx);
+    jobQueue.emplace_back(std::move(job));
+    pthread_mutex_unlock(&qMtx);
+
+    pthread_cond_signal(&qCv);
     return id;
 }
 
 std::shared_ptr<AlgoRunnerIpml::Job> AlgoRunnerIpml::findJobById(uint64_t id) {
-    std::lock_guard<std::mutex> lk(jobsMtx);
+    pthread_mutex_lock(&jobsMtx);
     auto it = jobs.find(id);
-    return it == jobs.end() ? nullptr : it->second;
+    std::shared_ptr<Job> res = (it == jobs.end()) ? nullptr : it->second;
+    pthread_mutex_unlock(&jobsMtx);
+    return res;
 }
 
 int AlgoRunnerIpml::init() {
@@ -239,11 +261,12 @@ int AlgoRunnerIpml::init() {
 
     workers.reserve(maxThreads);
     for (int i = 0; i < maxThreads; ++i) {
-        workers.emplace_back(
-            [this] {
-                workerLoop();
-            }
-        );
+        pthread_t tid;
+        if (pthread_create(&tid, nullptr, &AlgoRunnerIpml::workerCExecution, this) == 0) {
+            workers.emplace_back(tid);
+        } else {
+            spdlog::error("Failed to create pthread {}", i);
+        }
     }
     return EC_SUCCESS;
 }
@@ -253,17 +276,22 @@ int AlgoRunnerIpml::deinit() {
         return EC_SUCCESS;
     }
     running.store(false);
-    {
-        std::lock_guard<std::mutex> lk(qMtx);
-    }
-    qCv.notify_all();
-    for (std::thread& thead : workers) {
-        if (thead.joinable()) {
-            thead.join();
-        }
+    pthread_cond_broadcast(&qCv);
+    for (pthread_t& t : workers) {
+        pthread_join(t, nullptr);
     }
     workers.clear();
     return EC_SUCCESS;
+}
+
+static void addMsToTimespec(timespec& ts, uint32_t ms) {
+    using namespace std::chrono;
+    auto current = seconds(ts.tv_sec) + nanoseconds(ts.tv_nsec);
+    auto added = milliseconds(ms);
+    auto total = current + added;
+
+    ts.tv_sec = duration_cast<seconds>(total).count();
+    ts.tv_nsec = duration_cast<nanoseconds>(total % seconds(1)).count();
 }
 
 int AlgoRunnerIpml::run(
@@ -277,11 +305,11 @@ int AlgoRunnerIpml::run(
         if (request.has_math()) {
             result = runMath(request.math(), *out);
             response.set_status(result);
-            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
+            PRINT_ERROR_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
         } else if (request.has_str()) {
             result = runStr(request.str(), *out);
             response.set_status(result);
-            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
+            PRINT_ERROR_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
         } else {
             response.set_status(ipc::ST_ERROR_INVALID_INPUT);
         }
@@ -314,33 +342,46 @@ int AlgoRunnerIpml::get(
     }
 
     if (request.wait_mode() == ipc::NO_WAIT) {
-        std::lock_guard<std::mutex> g(job->m);
+        pthread_mutex_lock(&job->m);
         if (job->done == false) {
+            pthread_mutex_unlock(&job->m);
             response.set_status(ipc::ST_NOT_FINISHED);
             return EC_SUCCESS;
         }
         response.set_status(job->status);
         response.mutable_result()->Swap(&job->result);
-        {
-            std::lock_guard<std::mutex> jl(jobsMtx);
-            jobs.erase(id);
-        }
+        pthread_mutex_unlock(&job->m);
+        pthread_mutex_lock(&jobsMtx);
+        jobs.erase(id);
+        pthread_mutex_unlock(&jobsMtx);
         return EC_SUCCESS;
     }
 
     if (request.wait_mode() == ipc::WAIT_UP_TO) {
         const uint32_t ms = request.timeout_ms();
-        std::unique_lock<std::mutex> lk(job->m);
-        if (job->cv.wait_for(lk, std::chrono::milliseconds(ms), [&] { return job->done; }) == false) {
+        pthread_mutex_lock(&job->m);
+
+        timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        addMsToTimespec(ts, ms);
+
+        int timeout = 0;
+        while (job->done == false && timeout == 0) {
+            timeout = pthread_cond_timedwait(&job->cv, &job->m, &ts);
+        }
+
+        if (job->done == false) {
+            pthread_mutex_unlock(&job->m);
             response.set_status(ipc::ST_NOT_FINISHED);
             return EC_SUCCESS;
         }
         response.set_status(job->status);
         response.mutable_result()->Swap(&job->result);
-        {
-            std::lock_guard<std::mutex> jl(jobsMtx);
-            jobs.erase(id);
-        }
+        pthread_mutex_unlock(&job->m);
+
+        pthread_mutex_lock(&jobsMtx);
+        jobs.erase(id);
+        pthread_mutex_unlock(&jobsMtx);
         return EC_SUCCESS;
     }
 
