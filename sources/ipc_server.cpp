@@ -13,11 +13,11 @@ extern "C" {
         const int threads
     ) {
         int result = server::Application::create(sigStop, address, port, threads);
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the server application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to create the server application");
 
         server::Application& app = server::Application::get();
         result = app.init();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to initialize the server application");
 
         return EC_SUCCESS;
     }
@@ -25,12 +25,11 @@ extern "C" {
     int serverRun(void) {
         server::Application& app = server::Application::get();
         int result = app.run();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the server application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to start the server application");
         return EC_SUCCESS;
     }
 
     void stopHandleServer(int signo) {
-        spdlog::info("Signal {} received, stopping server...", signo);
         sigStop.store(true, std::memory_order_relaxed);
     }
 

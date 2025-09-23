@@ -57,7 +57,6 @@ namespace server {
             ipc::GetResponse& response
         );
     private:
-
         std::mutex jobsMtx;
         std::unordered_map<uint64_t, std::shared_ptr<Job>> jobs;
 
@@ -277,11 +276,11 @@ int AlgoRunnerIpml::run(
         if (request.has_math()) {
             result = runMath(request.math(), *out);
             response.set_status(result);
-            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
+            PRINT_ERROR_NO_RET(ErrorType::IPC, result, "Failed to run math operation");
         } else if (request.has_str()) {
             result = runStr(request.str(), *out);
             response.set_status(result);
-            ERROR_CHECK_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
+            PRINT_ERROR_NO_RET(ErrorType::IPC, result, "Failed to run string operation");
         } else {
             response.set_status(ipc::ST_ERROR_INVALID_INPUT);
         }

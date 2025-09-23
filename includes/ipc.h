@@ -80,6 +80,11 @@ extern "C" {
     /// @return An error code; 0 for success, non-zero for failure.
     int clientDeinitialize(void);
 
+    // Sets up logging
+    int initializeLogging(const char* loggingDir);
+
+    // Must be called at the end of the application, after all other IPC functions.
+    int deinitializeLogging();
 #ifdef __cplusplus
 } // extern "C"
 #endif

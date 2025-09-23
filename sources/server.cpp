@@ -1,13 +1,11 @@
-#include "cxxopts.hpp"
-#include "error_handling.h"
-#include <csignal>
-#include <spdlog/spdlog.h>
-#include "spdlog/sinks/rotating_file_sink.h"
 #include <google/protobuf/stubs/common.h>
+#include "error_handling.h"
+#include <spdlog/spdlog.h>
+#include "cxxopts.hpp"
+#include <csignal>
 #include "ipc.h"
 
 int main(int argc, char *argv[]) {
-    GOOGLE_PROTOBUF_VERIFY_VERSION;
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
         ("port", "Port number to connect to the server", cxxopts::value<int>()->default_value("24737"), "PORT")
@@ -26,33 +24,33 @@ int main(int argc, char *argv[]) {
     } else {
         loggingDir += "/log.txt";
     }
+    int result = initializeLogging(loggingDir.c_str());
+    if (result != EC_SUCCESS) {
+        return result;
+    }
 
-    // Create a file rotating logger with 50 MB size max and 2 rotated files
-    int32_t max_size = 1048576 * 50;
-    int32_t max_files = 2;
-    std::shared_ptr<spdlog::logger> logger = spdlog::rotating_logger_mt("Producer", loggingDir, max_size, max_files);
-    logger->flush_on(spdlog::level::info);
-    spdlog::set_default_logger(logger);
-    spdlog::set_level(spdlog::level::info);
-    spdlog::info("\n\nSTART");
-
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
     std::signal(SIGINT, stopHandleServer);
     std::signal(SIGTERM, stopHandleServer);
 
     const int threads = resultParser["threads"].as<int>();
     const int port = resultParser["port"].as<int>();
-    int result = serverInitialize("0.0.0.0", port, threads);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the server application");
 
-    result = serverRun();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the server application");
-
+    result = serverInitialize("0.0.0.0", port, threads);
+    if (result == EC_SUCCESS) {
+        result = serverRun();
+        if (result != EC_SUCCESS) {
+            spdlog::error("Failed to run the server application");
+        }
+    } else {
+        spdlog::error("Failed to initialize the server application");
+    }
     result = serverDeinitialize();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize the server application");
+    if (result != EC_SUCCESS) {
+        spdlog::error("Failed to deinitialize the server application");
+    }
 
-    spdlog::info("END LOGGING");
-    logger->flush();
-    spdlog::shutdown();
+    result = deinitializeLogging();
     google::protobuf::ShutdownProtobufLibrary();
-    return EC_SUCCESS;
+    return result;
 }

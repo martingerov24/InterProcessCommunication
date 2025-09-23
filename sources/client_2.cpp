@@ -1,5 +1,4 @@
-#include "spdlog/sinks/rotating_file_sink.h"
-#include "common/error_handling.h"
+#include <google/protobuf/stubs/common.h>
 #include "error_handling.h"
 #include <spdlog/spdlog.h>
 #include "cxxopts.hpp"
@@ -27,15 +26,8 @@ using fnClientInitialize = int (*)(const char*, const int, const int, const uint
 using fnClientStart = int (*)(void);
 using fnClientDeinitialize = int (*)(void);
 using fnStopHandle = void (*)(int);
-
-static void* mustOpen(const char* so_path) {
-    void* h = dlopen(so_path, RTLD_NOW);
-    if (!h) {
-        std::fprintf(stderr, "dlopen(%s) failed: %s\n", so_path, dlerror());
-        std::exit(1);
-    }
-    return h;
-}
+using fnInitializeLogging = int (*)(const char *);
+using fnDeinitializeLogging = int (*)(void);
 
 template<typename T>
 static T mustSym(void* h, const char* name) {
@@ -50,7 +42,6 @@ static T mustSym(void* h, const char* name) {
 }
 
 int main(int argc, char *argv[]) {
-    GOOGLE_PROTOBUF_VERIFY_VERSION;
     cxxopts::Options options("Producer", "Application options:");
     options.add_options()
         ("address", "Host name to connect to the server", cxxopts::value<std::string>()->default_value("ipc-server"), "STR")
@@ -71,54 +62,64 @@ int main(int argc, char *argv[]) {
         loggingDir += "/log.txt";
     }
 
-    // Create a file rotating logger with 50 MB size max and 2 rotated files
-    int32_t max_size = 1048576 * 50;
-    int32_t max_files = 2;
-    std::shared_ptr<spdlog::logger> logger = spdlog::rotating_logger_mt("Producer", loggingDir, max_size, max_files);
-    logger->flush_on(spdlog::level::info);
-    spdlog::set_default_logger(logger);
-    spdlog::set_level(spdlog::level::info);
-    spdlog::info("\n\nSTART");
-
     const std::string soPath = resultParser["so_path"].as<std::string>();
     if (fs::exists(soPath) == false) {
-        spdlog::error("Shared object file does not exist: {}", soPath);
+        printf("The shared object file does not exist: %s\n", soPath.c_str());
         return EC_FAILURE;
     }
-
-    void* handle = mustOpen(soPath.c_str());
+    void* handle = dlopen(soPath.c_str(), RTLD_NOW);
+    if (handle == nullptr) {
+        printf("dlopen(%s) failed: %s\n", soPath.c_str(), dlerror());
+        return EC_FAILURE;
+    }
     auto clientInitialize = mustSym<fnClientInitialize>(handle, "clientInitialize");
     auto clientStart = mustSym<fnClientStart>(handle, "clientStart");
     auto clientDeinitialize = mustSym<fnClientDeinitialize>(handle, "clientDeinitialize");
     auto stopHandle = mustSym<fnStopHandle>(handle, "stopHandleClient");
+    auto initLoggingFunc = mustSym<fnInitializeLogging>(handle, "initializeLogging");
+    auto deinitializeLogging = mustSym<fnDeinitializeLogging>(handle, "deinitializeLogging");
 
+    int result = initLoggingFunc(loggingDir.c_str());
+    if (result != EC_SUCCESS) {
+        dlclose(handle);
+        return result;
+    }
     const char* address  = resultParser["address"].as<std::string>().c_str();
     if (address == nullptr || std::strlen(address) == 0) {
         spdlog::error("Invalid address provided");
+        deinitializeLogging();
         dlclose(handle);
         return EC_FAILURE;
     }
-    const int port = resultParser["port"].as<int>();
 
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
+    const int port = resultParser["port"].as<int>();
     std::signal(SIGINT, stopHandle);
     std::signal(SIGTERM, stopHandle);
 
     const int receiveTimeoutMs = 3000;
     const uint8_t execFunc = ExecFunFlags::SUB | ExecFunFlags::DIV | ExecFunFlags::FIND_START;
 
-    int result = clientInitialize(address, port, receiveTimeoutMs, execFunc);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
-
-    result = clientStart();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the client application");
+    result = clientInitialize(address, port, receiveTimeoutMs, execFunc);
+    if (result == EC_SUCCESS) {
+        result = clientStart();
+        if (result != EC_SUCCESS) {
+            spdlog::error("Failed to start the client application");
+        }
+    } else {
+        spdlog::error("Failed to initialize the client application");
+    }
 
     result = clientDeinitialize();
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to deinitialize the client application");
+    if (result != EC_SUCCESS) {
+        spdlog::error("Failed to deinitialize the client application");
+    }
 
-    spdlog::info("END LOGGING");
-    logger->flush();
-    spdlog::shutdown();
+    result = deinitializeLogging();
+
+    if (handle) {
+        dlclose(handle);
+    }
     google::protobuf::ShutdownProtobufLibrary();
-    dlclose(handle);
-    return EC_SUCCESS;
+    return result;
 }

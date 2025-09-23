@@ -24,11 +24,11 @@ extern "C" {
             receiveTimeoutMs,
             execFunFlags
         );
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to create the client application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to create the client application");
 
         client::Application& app = client::Application::get();
         result = app.init();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to initialize the client application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to initialize the client application");
 
         return EC_SUCCESS;
     }
@@ -36,12 +36,11 @@ extern "C" {
     int clientStart(void) {
         client::Application& app = client::Application::get();
         int result = app.run();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to start the client application");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to start the client application");
         return EC_SUCCESS;
     }
 
     void stopHandleClient(int signo) {
-        spdlog::info("Signal {} received, stopping client...", signo);
         sigStop.store(true, std::memory_order_relaxed);
     }
 

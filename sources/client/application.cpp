@@ -80,7 +80,7 @@ int Application::init() {
         mSocket.set(zmq::sockopt::rcvtimeo, mReceiveTimeoutMs);
         mSocket.connect(endpoint);
         int result = sendFirstHandshake();
-        ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to send first handshake");
+        RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to send first handshake");
     } catch (const zmq::error_t& e) {
         spdlog::error("Failed to connect to {}: {}", endpoint, e.what());
         return EC_FAILURE;
@@ -110,7 +110,7 @@ int Application::sendFirstHandshake() {
     zmq::message_t frame(buf.size());
     memcpy(frame.data(), buf.data(), buf.size());
     zmq::send_result_t result = mSocket.send(frame, zmq::send_flags::none);
-    ERROR_CHECK(ErrorType::ZMQ_SEND, result, "Failed to send message");
+    RETURN_IF_ERROR(ErrorType::ZMQ_SEND, result, "Failed to send message");
     return EC_SUCCESS;
 }
 
@@ -123,7 +123,7 @@ int Application::sendEnvelope(const ipc::EnvelopeReq& env) {
     zmq::message_t frame(buf.size());
     memcpy(frame.data(), buf.data(), buf.size());
     zmq::send_result_t result = mSocket.send(frame, zmq::send_flags::none);
-    ERROR_CHECK(ErrorType::ZMQ_SEND, result, "Failed to send message");
+    RETURN_IF_ERROR(ErrorType::ZMQ_SEND, result, "Failed to send message");
     return EC_SUCCESS;
 }
 
@@ -216,11 +216,11 @@ int Application::getResult(
     }
 
     int result = sendEnvelope(env);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to send EnvelopeReq");
+    RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to send EnvelopeReq");
 
     ipc::EnvelopeResp resp;
     result = recvEnvelope(resp);
-    ERROR_CHECK(ErrorType::DEFAULT, result, "Timeout or receive error (EnvelopeResp)");
+    RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Timeout or receive error (EnvelopeResp)");
 
     if (resp.has_get() == false) {
         spdlog::error("Protocol error: missing get in EnvelopeResp");
@@ -253,7 +253,7 @@ static bool isBlockToken(const char* s) {
 }
 
 static void printSubmit(const ipc::SubmitResponse& response) {
-    ERROR_CHECK_NO_RET(ErrorType::IPC, response.status(), "Error in response");
+    PRINT_ERROR_NO_RET(ErrorType::IPC, response.status(), "Error in response");
     if (response.has_ticket()) {
         printf("ticket=%llu\n", (unsigned long long)response.ticket().req_id());
     }
@@ -278,7 +278,7 @@ static void printSubmit(const ipc::SubmitResponse& response) {
 }
 
 static void printGet(const ipc::GetResponse& response) {
-    ERROR_CHECK_NO_RET(ErrorType::IPC, response.status(), "Error in response");
+    PRINT_ERROR_NO_RET(ErrorType::IPC, response.status(), "Error in response");
     if (!response.has_result()) {
         if (response.status() == ipc::ST_NOT_FINISHED) {
             printf("Result: NOT FINISHED\n");
@@ -484,10 +484,10 @@ int Application::run() {
             ipc::SubmitRequest req = client::makeMath(m, a, b);
             if (isBlocking) {
                 result = app.submitBlocking(req, sresp);
-                ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to submit blocking request");
+                RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to submit blocking request");
             } else {
                 result = app.submitNonBlocking(req, sresp);
-                ERROR_CHECK(ErrorType::DEFAULT, result, "Failed to submit non-blocking request");
+                RETURN_IF_ERROR(ErrorType::DEFAULT, result, "Failed to submit non-blocking request");
             }
             if (result == EC_SUCCESS) {
                 printSubmit(sresp);
