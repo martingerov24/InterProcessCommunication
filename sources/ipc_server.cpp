@@ -30,6 +30,7 @@ extern "C" {
     }
 
     void stopHandleServer(int signo) {
+        (void)signo;
         sigStop.store(true, std::memory_order_relaxed);
     }
 
