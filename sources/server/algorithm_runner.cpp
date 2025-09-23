@@ -17,6 +17,7 @@ using namespace server;
 namespace server {
     struct AlgoRunnerIpml {
     private:
+        /// Only waiters on this Job wake up when it finishes.
         struct Job {
             uint64_t id = 0;
             ipc::SubmitRequest req;
