@@ -1,26 +1,48 @@
 version: '3.8'
 
 services:
-  server:
+  ipc-server-develop:
     build:
       context: .
       dockerfile: Dockerfile
-      target: release
+      target: development
+      args:
+        BASE_IMAGE: ${BASE_IMAGE}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE}
     image: ipc-application:release
-    container_name: ipc-server
-    command: ["/app/server", "--port", "24737"]
+    container_name: ipc-server-develop
+    # command: ["/app/server", "--port", "24737"]
+    command: tail -f /dev/null
+    volumes:
+      - ./:/app
     environment:
       LD_LIBRARY_PATH: /app
     networks: [ipc-application-net]
     restart: unless-stopped
 
-  base-client:
-    image: ipc-application:release
-    container_name: ipc-client-base
-    command: "tail -f /dev/null"
-    environment:
-      LD_LIBRARY_PATH: /app
-    networks: [ipc-application-net]
+  # server:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: release
+  #     args:
+  #       BASE_IMAGE: ${BASE_IMAGE}
+  #       RUNTIME_IMAGE: ${RUNTIME_IMAGE}
+  #   image: ipc-application:release
+  #   container_name: ipc-server
+  #   command: ["/app/server", "--port", "24737"]
+  #   environment:
+  #     LD_LIBRARY_PATH: /app
+  #   networks: [ipc-application-net]
+  #   restart: unless-stopped
+
+  # base-client:
+  #   image: ipc-application:release
+  #   container_name: ipc-client-base
+  #   command: "tail -f /dev/null"
+  #   environment:
+  #     LD_LIBRARY_PATH: /app
+  #   networks: [ipc-application-net]
 
 networks:
   ipc-application-net:

@@ -1,7 +1,10 @@
-FROM ubuntu:22.04 as base
+ARG BASE_IMAGE=ubuntu:22.04
+ARG RUNTIME_IMAGE=ubuntu:22.04
+
+FROM ${BASE_IMAGE} AS base
     WORKDIR /app
 
-FROM base as development
+FROM base AS development
     RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         python3 \
@@ -15,22 +18,20 @@ FROM base as development
         clang \
         clang-tidy \
         cppcheck \
-        python3 \
         doxygen \
-        python3-pip \
         libprotobuf-dev \
-        protobuf-compiler \
-        libzmq3-dev \
         ca-certificates \
         curl \
         tar \
         unzip \
-        vim
+        vim \
+    && rm -rf /var/lib/apt/lists/*
 
     RUN python3 -m pip install --no-cache-dir \
         pytest \
         sphinx \
         breathe
+
 FROM development AS build
     COPY . /app
 
@@ -51,16 +52,15 @@ FROM development AS build
         && cd "$(ls -dt /app/release/*/ | head -1)" \
         && tar -czvf /app/latest_release.tar.gz .
 
-FROM base AS release
+FROM ${RUNTIME_IMAGE} AS release
+    WORKDIR /app
     COPY --from=build /app/latest_release.tar.gz /app/
-    RUN tar -xzvf /app/latest_release.tar.gz -C /app
-    RUN rm latest_release.tar.gz
+    RUN tar -xzvf /app/latest_release.tar.gz -C /app && rm /app/latest_release.tar.gz
 
     RUN apt-get update && apt-get install -y --no-install-recommends \
         libprotobuf23 \
         libzmq5 \
-        ca-certificates
+        ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-    RUN export LD_LIBRARY_PATH=/app:$LD_LIBRARY_PATH
-    RUN apt-get clean && rm -rf /var/lib/apt/lists/*
-
+    ENV LD_LIBRARY_PATH=/app:$LD_LIBRARY_PATH
