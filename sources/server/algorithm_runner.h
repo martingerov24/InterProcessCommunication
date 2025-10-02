@@ -6,12 +6,12 @@
 namespace server {
 
     // Forward declaration of the private implementation struct.
-    struct AlgoRunnerIpml;
+    struct AlgoRunnerImpl;
 
     // The public interface for the algorithm runner.
     // It's a "handle" class that delegates all its work to an internal implementation object.
     struct AlgoRunner {
-
+        AlgoRunner();
         /// @brief Initializes the AlgoRunner and its internal thread pool.
         /// @param threads The number of threads to create for the thread pool.
         /// @return An error code; 0 for success.
@@ -40,9 +40,10 @@ namespace server {
             const ipc::GetRequest& request,
             ipc::GetResponse& response
         ) const ;
-
+        // Default Destructor is needed, so the unique ptr can see how to delete the pmpl 
+        ~AlgoRunner();
     private:
         // The implementation is defined in the .cpp file.
-        std::unique_ptr<AlgoRunnerIpml>* outImpl = nullptr;
+        std::unique_ptr<AlgoRunnerImpl> outImpl;
     };
 };
