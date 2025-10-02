@@ -15,7 +15,7 @@
 using namespace server;
 
 namespace server {
-    struct AlgoRunnerIpml {
+    struct AlgoRunnerImpl {
     private:
         /// Only waiters on this Job wake up when it finishes.
         struct Job {
@@ -48,7 +48,7 @@ namespace server {
         ) const;
 
         static void* workerCExecution(void* arg) {
-            auto* self = reinterpret_cast<AlgoRunnerIpml*>(arg);
+            auto* self = reinterpret_cast<AlgoRunnerImpl*>(arg);
             self->workerLoop();
             return nullptr;
         }
@@ -59,7 +59,7 @@ namespace server {
 
         std::shared_ptr<Job> findJobById(uint64_t id);
     public:
-        AlgoRunnerIpml(const int threads);
+        AlgoRunnerImpl(const int threads);
 
         int init();
 
@@ -89,7 +89,7 @@ namespace server {
     };
 };
 
-AlgoRunnerIpml::AlgoRunnerIpml(const int threads)
+AlgoRunnerImpl::AlgoRunnerImpl(const int threads)
 : maxThreads(threads) {}
 
 // PUBLIC CLASS METHODS
@@ -98,8 +98,8 @@ int AlgoRunner::init(const int threads) {
         spdlog::error("AlgoRunner is already initialized");
         return EC_SUCCESS;
     }
-    outImpl = new std::unique_ptr<AlgoRunnerIpml>(new AlgoRunnerIpml(threads));
-    return (*outImpl)->init();
+    outImpl = std::make_unique<AlgoRunnerImpl>(threads);
+    return outImpl->init();
 }
 
 int AlgoRunner::deinit() {
@@ -107,10 +107,7 @@ int AlgoRunner::deinit() {
         spdlog::error("AlgoRunner is not initialized");
         return EC_SUCCESS;
     }
-    int result = (*outImpl)->deinit();
-    delete outImpl;
-    outImpl = nullptr;
-    return result;
+    return outImpl->deinit();
 }
 
 int AlgoRunner::run(
@@ -121,7 +118,7 @@ int AlgoRunner::run(
         spdlog::error("AlgoRunner is not initialized");
         return EC_FAILURE;
     }
-    return (*outImpl)->run(request, response);
+    return outImpl->run(request, response);
 }
 
 int AlgoRunner::get(
@@ -132,12 +129,16 @@ int AlgoRunner::get(
         spdlog::error("AlgoRunner is not initialized");
         return EC_FAILURE;
     }
-    return (*outImpl)->get(request, response);
+    return outImpl->get(request, response);
 }
+
+AlgoRunner::AlgoRunner() = default;
+
+AlgoRunner::~AlgoRunner() = default;
 // ~ PUBLIC CLASS METHODS
 
 // PRIVATE CLASS METHODS
-ipc::Status AlgoRunnerIpml::runMath(
+ipc::Status AlgoRunnerImpl::runMath(
     const ipc::MathArgs& request,
     ipc::Result& response
 ) const {
@@ -163,7 +164,7 @@ ipc::Status AlgoRunnerIpml::runMath(
     return ipc::ST_SUCCESS;
 }
 
-ipc::Status AlgoRunnerIpml::runStr(
+ipc::Status AlgoRunnerImpl::runStr(
     const ipc::StrArgs& request,
     ipc::Result& response
 ) const {
@@ -185,9 +186,9 @@ ipc::Status AlgoRunnerIpml::runStr(
     return ipc::Status::ST_SUCCESS;
 }
 
-void AlgoRunnerIpml::workerLoop() {
+void AlgoRunnerImpl::workerLoop() {
     while (running.load()) {
-        std::shared_ptr<AlgoRunnerIpml::Job> job;
+        std::shared_ptr<AlgoRunnerImpl::Job> job;
         {
             pthread_mutex_lock(&qMtx);
             while (running.load() && jobQueue.empty()) {
@@ -222,7 +223,7 @@ void AlgoRunnerIpml::workerLoop() {
     }
 }
 
-uint64_t AlgoRunnerIpml::enqueue(const ipc::SubmitRequest& req) {
+uint64_t AlgoRunnerImpl::enqueue(const ipc::SubmitRequest& req) {
     using namespace std::chrono;
 
     std::shared_ptr<Job> job = std::make_shared<Job>();
@@ -245,7 +246,7 @@ uint64_t AlgoRunnerIpml::enqueue(const ipc::SubmitRequest& req) {
     return id;
 }
 
-std::shared_ptr<AlgoRunnerIpml::Job> AlgoRunnerIpml::findJobById(uint64_t id) {
+std::shared_ptr<AlgoRunnerImpl::Job> AlgoRunnerImpl::findJobById(uint64_t id) {
     pthread_mutex_lock(&jobsMtx);
     auto it = jobs.find(id);
     std::shared_ptr<Job> res = (it == jobs.end()) ? nullptr : it->second;
@@ -253,7 +254,7 @@ std::shared_ptr<AlgoRunnerIpml::Job> AlgoRunnerIpml::findJobById(uint64_t id) {
     return res;
 }
 
-int AlgoRunnerIpml::init() {
+int AlgoRunnerImpl::init() {
     if (running.load()) {
         return EC_SUCCESS;
     }
@@ -262,7 +263,7 @@ int AlgoRunnerIpml::init() {
     workers.reserve(maxThreads);
     for (int i = 0; i < maxThreads; ++i) {
         pthread_t tid;
-        if (pthread_create(&tid, nullptr, &AlgoRunnerIpml::workerCExecution, this) == 0) {
+        if (pthread_create(&tid, nullptr, &AlgoRunnerImpl::workerCExecution, this) == 0) {
             workers.emplace_back(tid);
         } else {
             spdlog::error("Failed to create pthread {}", i);
@@ -271,7 +272,7 @@ int AlgoRunnerIpml::init() {
     return EC_SUCCESS;
 }
 
-int AlgoRunnerIpml::deinit() {
+int AlgoRunnerImpl::deinit() {
     if (running.load() == false) {
         return EC_SUCCESS;
     }
@@ -294,7 +295,7 @@ static void addMsToTimespec(timespec& ts, uint32_t ms) {
     ts.tv_nsec = duration_cast<nanoseconds>(total % seconds(1)).count();
 }
 
-int AlgoRunnerIpml::run(
+int AlgoRunnerImpl::run(
     const ipc::SubmitRequest& request,
     ipc::SubmitResponse& response
 ) {
@@ -330,12 +331,12 @@ int AlgoRunnerIpml::run(
     return EC_SUCCESS;
 }
 
-int AlgoRunnerIpml::get(
+int AlgoRunnerImpl::get(
     const ipc::GetRequest& request,
     ipc::GetResponse& response
 ) {
     const uint64_t id = request.ticket().req_id();
-    std::shared_ptr<server::AlgoRunnerIpml::Job> job = findJobById(id);
+    std::shared_ptr<server::AlgoRunnerImpl::Job> job = findJobById(id);
     if (job == nullptr) {
         response.set_status(ipc::ST_ERROR_INVALID_INPUT);
         return EC_SUCCESS;
